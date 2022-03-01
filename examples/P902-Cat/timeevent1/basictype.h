@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <fm33lc0xx.h>
+#include "logbyte.h"
 #define TRUE  1
 #define true  1 
 #define FALSE 0
@@ -468,7 +469,7 @@ __STATIC_INLINE uint8_t CalcHsb32(uint32_t data)
 
 // to go  deep sleep or normal sleep mode by Periph enable bit. 
 // deep sleep mode will not support the trace.
-#define SleepMode_Enable  1
+#define SleepMode_Enable  0
 
 // if use the assert function or debug function
 #define _ASSERT   1
@@ -548,20 +549,21 @@ typedef struct StdEvent_
 
 // the static proc mode , there is two kind of way for  static proc to wait some event 
 // 1 : wait event is written in code .  : when the static proc running , it will jump to a jump point , check the current input event and the event in code .
-//     this way need less  memory , but a little more running time .
-// 2 : wait event is stored in ram  .  : when the static proc running , it check the input event with the waiting event array, then jump to  specail jump point 
+//     this way need less  memory , but a little more running time  bcs the check code is running every time  .
+// 2 : wait event is stored in ram  .  : when the static proc running , it check the input event with the waiting event array, only jump to  specail jump point when the event checked 
 //     this way need more memory ,to store the wait event array , but it is a little quickly .
+//     be careful , the static proc is running ONLY there is event registered and there is a same event is send to this block .    
 // bcs the static proc is called when any event is input , it's called so frequently , the way 2 is more fitable to used .
+//     but
+// define StaticProcModeQuick : used way 2 .else used way  1 
+#define StaticProcModeQuick       1
+#if  StaticProcModeQuick == 1 
 
-// define StaticProcModeQuickly : used way 2 .else used way  1 
-#define StaticProcModeQuickly       1
-#if  StaticProcModeQuickly == 1 
-// the max wait event cnt is defined , all thd proc  has same count of wait array cnt  MAX Cnt is 32
-#define StaticProcWaitEvtCnt    4
+// the max wait event cnt is defined , all thd proc  has same count of wait array cnt  MAX Cnt is 4 
+
+#define StaticProcWaitEvtCnt   4
     #if StaticProcWaitEvtCnt > 8
         #error "MAX wait evt Cnt is bigger then 8"
-    #elif StaticProcWaitEvtCnt & 1
-        #error "MAX wait evt Cnt should be  2,4,6,8,10,12,....32"        
     #endif
 #endif 
 
@@ -676,10 +678,10 @@ static const uint8_t PoolLen[PoolCnt] =
 
 // 特殊内存块定义， 部分内存池将用于特殊用途， 这部分内存池单独定义
 
-// define the RF memory  pool  cnt  , 
+// define the RF memory  pool  cnt  max cnt i  , 
 #define PoolRF_Cnt    120  // max Pool1_Cnt item. 
-#if PoolRF_Cnt >= 255
-#error Rf Pool count should not bigger than 254! 
+#if PoolRF_Cnt >= 127
+#error Rf Pool count should not bigger than 127 ,bcs for short Evt struct max buffer cnt is 127 
 #endif
 // define the  pool1 item size based on uint32_t .
 #define PoolRF_Size   10   // max 10*4 = 40byte .
@@ -728,19 +730,21 @@ typedef enum Signal_
     Sig_IrDetect,     //14 do  a Ir send and receive .
     Sig_GetRfMode,    //15 RF mode for test 
     Sig_Wakeup ,      // 0x10  do wakeup , do not goto sleep mode , wait the update programe .
-    Sig_DelayReset ,   //0x11 reset after 6 seconds .
-    Sig_ReadRFReg ,    //0x12 try to read the rf register .
-    Sig_Rf_DayOver,    //0x13 a day overed , send to net layer to do node live cnt detect .
-    
-    Sig_Lora_GetTime,  //0x14 test. used by other process to start GetTime  proc
-    Sig_ShutDown,      //0x15  ,test to goto deep sleep mode
+    Sig_DelayReset ,   //0x11 reset after 2 seconds .
+    Sig_GotoBoot,      //0x12 reset and goto boot mode ,wait for fresh app . 
+    Sig_ShutDown,      //0x13  ,test to goto deep sleep mode    
+    Sig_ReadRFReg ,    //0x14 try to read the rf register .
+    Sig_Rf_DayOver,    //0x15 a day overed , send to net layer to do node live cnt detect .
+    Sig_Lora_GetTime,  //0x16 test. used by other process to start GetTime  proc
+
     
 
 
     // 下面是RF事件区域， MAC 部分上报状态信息 ， 以及上层下发特定的收发以及休眠到MAC层
     //--------------------------------------------------------------------    
-    Sig_Rf_Overtime  = 0x80,   // lora detected a msg send fail . : it has not receive a ack.
-    Sig_Rf_Recv_Msg,
+    Sig_Rf_Overtime  = 0x80,   // lora detected a  send fail . : it has not receive a ack.
+    Sig_Rf_Recv_Data,          // lora received a  block data , that  maybe a msg or a low net msg . 
+    Sig_Rf_Recv_Msg,           // lora received a msg , that is send to local node 
     Sig_Rf_Register ,          // ask to start the registe proc 
     Sig_Rf_Rgst_Delay,         // delay  signal used in register proc
     Sig_Rf_Register_OK,        // register ok . the node has jion to the local net .
@@ -826,9 +830,9 @@ typedef enum Signal_
 #define  RootNode     1
 #define  TreeNode     2
 #define  LeafNode     3
-#define  Nodetype     TreeNode
-//#define Nodetype    LeafNode
-
+//#define  Nodetype     TreeNode
+#define Nodetype    LeafNode
+//#define Nodetype  RootNode  
 
 #define MaxNodeLiveCnt       4           //max 15, a counter based on day   a node lived if it not connect with other's  .it will be sub 1 every day.
 #define MaxChildActivePeriod (24*(MaxNodeLiveCnt/2) -1)   //max 255 a counter based on hour   every ChildActivePeriod * FixHourCnt hours  the child is wakeup to send mac check undirect msg.

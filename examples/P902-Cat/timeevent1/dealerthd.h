@@ -37,15 +37,6 @@ typedef enum DealerProcId_
     MagnetSetTimeProcId
 } HalProcId ;
 
-static LPLongProc  const DealerProcArray[]=
-{
-    MotorProc0,
-    MotorProc1,
-    MagnetSetTimeProc,
-    0,
-    0
-};
-
 
 
 #endif // __mac_layer_H

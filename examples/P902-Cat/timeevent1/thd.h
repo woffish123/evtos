@@ -1,7 +1,7 @@
 #ifndef __thd_header_H 
 #define __thd_header_H 
 #include "softtimer.h"
-// blockid  the block index which the evt will be post to . it is not bigger than 0x3f == SftOpt_Mask (defined in softtimer.h)
+// blockid  the block index which the evt will be post to . it is not bigger than SftOpt_Mask (0x1f, defined in softtimer.h)
 typedef enum BlockId_
 {
     BlcId_Hal = 0 ,        // block id for hal proc  

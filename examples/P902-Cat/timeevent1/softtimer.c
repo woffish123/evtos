@@ -13,7 +13,7 @@ SoftTimeCtrl   SoftTimerCtrlBlock ;
 
 uint8_t GetSoftTimerCnt(void)
 {
-    return SoftTimerCtrlBlock.option;
+    return SoftTimerCtrlBlock.usedcnt;
 }
 
 void InitSoftTimer(void)
@@ -25,7 +25,7 @@ void InitSoftTimer(void)
     {
         SoftTimerCtrlBlock.ctrl[temp].differ = 0 ;
         SoftTimerCtrlBlock.ctrl[temp].delay = 0 ;
-        SoftTimerCtrlBlock.ctrl[temp].evt = 0 ;
+        SoftTimerCtrlBlock.evt[temp] = 0 ;
         SoftTimerCtrlBlock.block[temp] = 0 ;
         SoftTimerCtrlBlock.nextid[temp] = temp+1 ;
     }
@@ -33,7 +33,7 @@ void InitSoftTimer(void)
     SoftTimerCtrlBlock.ccr1header = InvalidId ;
     SoftTimerCtrlBlock.ccr2header = InvalidId ;
     SoftTimerCtrlBlock.freeheader = 0 ;
-    SoftTimerCtrlBlock.option = 0;
+    SoftTimerCtrlBlock.usedcnt = 0;
     InitLpTime();
     SoftTimerCtrlBlock.lpQuickProc = NULL;
 }
@@ -46,20 +46,19 @@ uint8_t  GetFreeSoftTimer(void)
 {// just  return the first free id.  return InvalidId ,
     uint8_t res ;
     res = SoftTimerCtrlBlock.freeheader ;
-	if(res	!= InvalidId )
-    {
-        SoftTimerCtrlBlock.freeheader =  SoftTimerCtrlBlock.nextid[res] ;
-        SoftTimerCtrlBlock.option ++ ;
-    }
+	assert(res	!= InvalidId );
+    SoftTimerCtrlBlock.freeheader =  SoftTimerCtrlBlock.nextid[res] ;
+    SoftTimerCtrlBlock.usedcnt ++ ;
     return res;
 }
 // give up set new softtimer ,  it used after call GetFreeSoftTimer();
 void  ReleaseFreeSoftTimer(uint8_t res) 
 {// put a index to release array.
     assert(res<SoftTimerCnt);
+    assert(SoftTimerCtrlBlock.usedcnt);
     SoftTimerCtrlBlock.nextid[res] =SoftTimerCtrlBlock.freeheader ;
     SoftTimerCtrlBlock.freeheader = res ;
-    SoftTimerCtrlBlock.option -- ;
+    SoftTimerCtrlBlock.usedcnt -- ;
 }
 LPSoftTimer  GetSoftTimerData(uint8_t index)
 {
@@ -74,8 +73,10 @@ void StartSoftTimer(uint8_t index)
     uint8_t  lastindex ;
     assert( index<SoftTimerCnt);
     assert(SoftTimerCtrlBlock.ctrl[index].delay!=0);
+    
     if(CheckPeriph(Clock_LPTIM) == 0)
         EnablePeriph(Clock_LPTIM);
+    
     SoftTimerCtrlBlock.ctrl[index].differ =  SoftTimerCtrlBlock.ctrl[index].delay;
     INT_DISABLE();
 	if((SoftTimerCtrlBlock.block[index] & SftOpt_Repeat) ==0)
@@ -92,7 +93,9 @@ void StartSoftTimer(uint8_t index)
             SetLPTIMCCR1(temp32 & Sft_OVRFLW_MASK) ;
             SetLPTIMISR(LPTTIM_CCR1_INTERRUPT);
             SetLPTIMIER (GetLPTIMIER()|LPTTIM_CCR1_INTERRUPT); 
-            RunLPTIM();    
+            RunLPTIM();   
+            INT_ENABLE();
+            return;            
         }
         else
         {// 计时器1运行中， 当前列表非空 ， 判断第一个的延时值是否小于新值 ， 如果小于则在列表中循环直到找到第一个延时值大于新值的项
@@ -108,15 +111,19 @@ void StartSoftTimer(uint8_t index)
 				temp32 = GetLPTIMCCR1() - GetLPTIMCNT() ;
 			}            
             if(temp32 < SoftTimerCtrlBlock.ctrl[index].differ )
-            { // 准备循环设置tempindex为下一个的id ， 保存当前id
+            { // new item bigger than first , try to find the fitable position ,and insert new item to it.
+                SoftTimerCtrlBlock.ctrl[index].differ -= temp32 ;
                 lastindex = SoftTimerCtrlBlock.ccr1header ;
                 tempindex = SoftTimerCtrlBlock.nextid[lastindex];
-                SoftTimerCtrlBlock.ctrl[index].differ -= temp32 ;
-                if(tempindex == InvalidId)
-                {
+                /*if(tempindex == InvalidId)
+                { // only one item running , and new to the tail .
                    SoftTimerCtrlBlock.nextid[lastindex] = index;
                    SoftTimerCtrlBlock.nextid[index] = InvalidId;
-                }
+                   INT_ENABLE();
+                   return;
+                    
+                }*/
+                // else , there are multiple item .
                 while(tempindex != InvalidId )
                 {   
                     if(SoftTimerCtrlBlock.ctrl[tempindex].differ< SoftTimerCtrlBlock.ctrl[index].differ )
@@ -126,16 +133,14 @@ void StartSoftTimer(uint8_t index)
                         tempindex = SoftTimerCtrlBlock.nextid[tempindex];
                     }
                     else
-                    {// insert the new one before current one .
+                    {// find position ,insert the new one before current one .
                         SoftTimerCtrlBlock.nextid[lastindex] = index;
                         SoftTimerCtrlBlock.nextid[index] = tempindex;
                         SoftTimerCtrlBlock.ctrl[tempindex].differ -= SoftTimerCtrlBlock.ctrl[index].differ;
-                        INT_ENABLE();
-                        return;
                     }
                 }
                 if(tempindex == InvalidId)
-                { // put it at the last on 
+                { // only one item running , or has finded all item but no one small that new one  ,put it at the last  
                      SoftTimerCtrlBlock.nextid[lastindex] = index;
                      SoftTimerCtrlBlock.nextid[index] = InvalidId;
                 }
@@ -143,7 +148,7 @@ void StartSoftTimer(uint8_t index)
                 return;               
             }                
             else
-            { //第一个的延时值大于等于新值
+            { // first is bigger than new item , replace first with new item .
                 tempindex = SoftTimerCtrlBlock.ccr1header;
                 SoftTimerCtrlBlock.ctrl[tempindex].differ = GetLPTIMCCR1() -temp32 - SoftTimerCtrlBlock.ctrl[index].differ;
                 temp32 = GetLPTIMCNT() + SoftTimerCtrlBlock.ctrl[index].differ;
@@ -151,10 +156,11 @@ void StartSoftTimer(uint8_t index)
                 SoftTimerCtrlBlock.ccr1header = index ;
                 SoftTimerCtrlBlock.nextid[index] =  tempindex ;
                 SoftTimerCtrlBlock.ctrl[index].differ = 0 ;
+                INT_ENABLE();
+                return; 
             }
         }
-        INT_ENABLE();
-        return;           
+          
     }
     else
     {// this is a loop item . put it in the second list
@@ -174,7 +180,7 @@ void StartSoftTimer(uint8_t index)
          {
              temp32 = 0 ;
          }
-     	 // add new one to first one .
+     	 // add new one to first position .
 		 lastindex = SoftTimerCtrlBlock.ccr2header ;
 		 SoftTimerCtrlBlock.nextid[index]= lastindex ;
 		 SoftTimerCtrlBlock.ccr2header = index ;	
@@ -320,7 +326,7 @@ void StopSoftTimer(uint8_t index)
         // put this one to free list .
         SoftTimerCtrlBlock.nextid[index] =SoftTimerCtrlBlock.freeheader ;
         SoftTimerCtrlBlock.freeheader = index ;
-        SoftTimerCtrlBlock.option -- ;
+        SoftTimerCtrlBlock.usedcnt -- ;
     }
     INT_ENABLE();
 }
@@ -353,7 +359,7 @@ void ResetSoftTimer(uint8_t index,uint32_t delay)
             {//
                 SoftTimerCtrlBlock.nextid[preindex] =SoftTimerCtrlBlock.nextid[tempindex] ;
             }
-            SoftTimerCtrlBlock.option ++ ;
+            SoftTimerCtrlBlock.usedcnt ++ ;
             if(delay != RESTARTDELAY ) 
                 SoftTimerCtrlBlock.ctrl[index].delay = Ms2Tick(delay) ;            
             StartSoftTimer(index);
@@ -377,7 +383,7 @@ void ResetSoftTimerEvt(StdEvt evt,uint32_t delay)
     evt  = getevtid(evt);
     for(index = 0 ; index <SoftTimerCnt ; index++)
     {
-        if(getevtid(SoftTimerCtrlBlock.ctrl[index].evt)  == evt)
+        if(getevtid(SoftTimerCtrlBlock.evt[index])  == evt)
         {
             ResetSoftTimerEvt(index,delay); 
             return;
@@ -392,7 +398,7 @@ void ReleaseSoftTimerEvt(StdEvt evt)
     evt  = getevtid(evt);
     for(index = 0 ; index <SoftTimerCnt ; index++)
     {
-        if(getevtid(SoftTimerCtrlBlock.ctrl[index].evt)  == evt)
+        if(getevtid(SoftTimerCtrlBlock.evt[index])  == evt)
         {
             ReleaseSoftTimer(index); 
             return;
@@ -412,23 +418,27 @@ void LPTIM_IRQHandler(void)
     
     if(res & (1<<0))
     { // cc1 interrupt.   first is overtime . post it . set next one 
+        tempindex = SoftTimerCtrlBlock.ccr1header ;
+        
+ /*       
         lastindex = SoftTimerCtrlBlock.ccr1header ;
         tempindex = SoftTimerCtrlBlock.nextid[lastindex] ;
+        
         if(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Quick)
         {   
-            if(SoftTimerCtrlBlock.lpQuickProc)
-             (*SoftTimerCtrlBlock.lpQuickProc)(SoftTimerCtrlBlock.ctrl[lastindex].evt);
+            assert(SoftTimerCtrlBlock.lpQuickProc != 0);
+            (*SoftTimerCtrlBlock.lpQuickProc)(SoftTimerCtrlBlock.evt[lastindex]);
         }
         else
-            postevtbyindex(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Mask,SoftTimerCtrlBlock.ctrl[lastindex].evt);
+            postevtbyindex(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Mask,SoftTimerCtrlBlock.evt[lastindex]);
         if((SoftTimerCtrlBlock.block[lastindex] & SftOpt_Lock) == 0)
         {
             // return it to free list .
             SoftTimerCtrlBlock.nextid[lastindex] =SoftTimerCtrlBlock.freeheader ;
             SoftTimerCtrlBlock.freeheader = lastindex ;
-            SoftTimerCtrlBlock.option --;
+            SoftTimerCtrlBlock.usedcnt --;
         }
-        // return end.
+        // return end. */
         while (tempindex  != InvalidId)
         {// find all delay is 0 item . and post it
             if(SoftTimerCtrlBlock.ctrl[tempindex].differ != 0)
@@ -442,18 +452,19 @@ void LPTIM_IRQHandler(void)
             tempindex = SoftTimerCtrlBlock.nextid[lastindex] ;
             if(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Quick)
             {   
-                if(SoftTimerCtrlBlock.lpQuickProc)
-                 (*SoftTimerCtrlBlock.lpQuickProc)(SoftTimerCtrlBlock.ctrl[lastindex].evt);
+                assert(SoftTimerCtrlBlock.lpQuickProc != 0);
+                (*SoftTimerCtrlBlock.lpQuickProc)(SoftTimerCtrlBlock.evt[lastindex]);
             }            
             else
-                postevtbyindex(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Mask,SoftTimerCtrlBlock.ctrl[lastindex].evt);
+                postevtbyindex(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Mask,SoftTimerCtrlBlock.evt[lastindex]);
             if((SoftTimerCtrlBlock.block[lastindex] & SftOpt_Lock) == 0)
             {
                 SoftTimerCtrlBlock.nextid[lastindex] =SoftTimerCtrlBlock.freeheader ;
                 SoftTimerCtrlBlock.freeheader = lastindex ;
-                SoftTimerCtrlBlock.option --;
+                SoftTimerCtrlBlock.usedcnt --;
             }
         }
+        
 		if(tempindex  == InvalidId)
 		{ // no item is this list . stop it
             SetLPTIMIER( GetLPTIMIER()&LPTTIM_CCR2_INTERRUPT );  // bit1 maybe is setted
@@ -475,11 +486,10 @@ void LPTIM_IRQHandler(void)
             {// find the other one ,stop post .
                 if(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Quick)
                 {   
-                    if(SoftTimerCtrlBlock.lpQuickProc)
-                     (*SoftTimerCtrlBlock.lpQuickProc)(SoftTimerCtrlBlock.ctrl[lastindex].evt);
+                    (*SoftTimerCtrlBlock.lpQuickProc)(SoftTimerCtrlBlock.evt[lastindex]);
                 }                                           
                 else
-                    postevtbyindex(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Mask,SoftTimerCtrlBlock.ctrl[lastindex].evt);
+                    postevtbyindex(SoftTimerCtrlBlock.block[lastindex] & SftOpt_Mask,SoftTimerCtrlBlock.evt[lastindex]);
 				SoftTimerCtrlBlock.ctrl[lastindex].differ = SoftTimerCtrlBlock.ctrl[lastindex].delay ;
 			}
 			if(SoftTimerCtrlBlock.ctrl[lastindex].differ <= temp32 )

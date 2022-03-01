@@ -28,7 +28,7 @@ typedef struct SoftTimer_
 {
     uint32_t delay  ;      // wished delay ticks. based on  LPTIME_PREDIV
     uint32_t differ ;
-    StdEvt    evt ;         // used set  hold the event will be do .    
+    //StdEvt    evt ;         // used set  hold the event will be do .     put it to softtimectrl block to get fix byte align ,so save ram.
 }SoftTimer, * LPSoftTimer ;  
 
 
@@ -38,12 +38,13 @@ typedef struct SoftTimeCtrl_
 {
     LPSftQuickProc lpQuickProc;
     SoftTimer ctrl[SoftTimerCnt];
+    StdEvt    evt[SoftTimerCnt] ;
     uint8_t   block[SoftTimerCnt];        // inter used . the block index based on 0 , when post the evt need which block to send .  the high bit is SftOpt_Repeat , SftOpt_Lock and SftOpt_Lock bit ,used to post by function: postevt(uint8_t  index ,StdEvt evt)
     uint8_t   nextid[SoftTimerCnt];       // inter used . the index  of the next softtimectrl 
     uint8_t   ccr1header;  // the index of the softtime array for  lptime ccr1 register .
     uint8_t   ccr2header;  // the index of the softtime array for  lptime ccr1 register .
     uint8_t   freeheader ; // the index of the first freesoft timer. 
-    uint8_t   option ;  // hold option  . no used now. for test hold the used timer cnt.
+    uint8_t   usedcnt ;  // hold option  . no used now. for test hold the used timer cnt.
 }SoftTimeCtrl ; 
 
 extern SoftTimeCtrl   SoftTimerCtrlBlock ;
@@ -72,7 +73,7 @@ __STATIC_INLINE void SoftTimerBlockAndOpt(uint8_t index,uint8_t block ,uint8_t o
 }
 __STATIC_INLINE void SetSoftTimerEvt(uint8_t index,StdEvt evt)   
 {
-    SoftTimerCtrlBlock.ctrl[index].evt = evt ;
+    SoftTimerCtrlBlock.evt[index] = evt ;
 }
 void InitSoftTimer(void);
 // return a soft timer ctrol block index,  -1 if there is no free one .

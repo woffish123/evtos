@@ -5,33 +5,42 @@
 #include "thd.h"
 #include "logbyte.h"
 
-#define LC_RESUME(s,evt,sig) switch(s) { case 0: if(((evt)^(sig))&EvtSigMask ) { return 0;}   
-#define LC_RETSET(s) s = __LINE__; return 1; case __LINE__:
-//#define LC_SET(s) s = __LINE__; case __LINE__:    
-//#define LC_END(s)  __NOP();}
+// define the return value  .
+#define ThdProc_NotFind  0
+#define ThdProc_Find     1
+#define ThdProc_Exit     2 
 
 // the static thread init .  should  called before static thread start  .
 #define ThdInit(lpdata)   (lpdata)->state16= 0 
-// if  start thread with waitting a sig 
-#define ThdBeginSig(lpdata,evt,sig) {  LC_RESUME((lpdata)->state16,evt,sig) 
+
 // if start the thread not need wait a sig
-#define ThdBegin(lpdata) {  switch((lpdata)->state16) { case 0:  __NOP()
-// if  start thread with waitting a specail cndition . 
-#define ThdBeginCon(lpdata,condi) {  switch((lpdata)->state16) { case 0:  if(!condi) { return 0;}
-    
-#define ThdEnd(lpdata) } (lpdata)->state16 =0; return 1 ; }   
+#define ThdBegin(lpdata) {  switch((lpdata)->state16) { case 0:  
+
+
+// return 2    
+#define ThdEnd(lpdata)   } (lpdata)->state16 =0; return ThdProc_Exit ; }  
 // 不等待任何值 
-#define ThdWait(lpdata)   LC_RETSET(lpdata->state16)
+#define ThdWait(lpdata)   LC_RETSET(lpdata->state16)     
+
+#if StaticProcModeQuick != 1 
+    #define LC_RESUME(s,evt,sig) switch(s) { case 0: if(((evt)^(sig))&EvtSigMask ) { return ThdProc_NotFind;}   
+    // if  start thread with waitting a sig 
+    #define ThdBeginSig(lpdata,evt,sig) {  LC_RESUME((lpdata)->state16,evt,sig) 
+    // if  start thread with waitting a specail cndition .  
+    #define ThdBeginCon(lpdata,condi) {  switch((lpdata)->state16) { case 0:  if(!condi) { return ThdProc_NotFind;}
+    
+    #define LC_RETSET(s) s = __LINE__; return ThdProc_Find; case __LINE__:
 
 // 等待一个非信号的条件完成 
 #define ThdWaitCon(lpdata,condition)	        \
   do {						\
          LC_RETSET(lpdata->state16);				\
-         if(!(condition) ) { return 0;}        \
+         if(!(condition) ) { return ThdProc_NotFind;}        \
      } while(0)
+#else 
+#define LC_RETSET(s) s = __LINE__; return ThdProc_NotFind; case __LINE__:
+#endif    
 
-
-     
   
      
 // thread block hold the tread current state ,the thread event pool .
@@ -41,18 +50,18 @@ typedef struct LongProcData_
     uint8_t  procid ; // the local long proc index  start from 0.  Inter Used
     uint8_t  state8 ; // for the long proc used to deal multiple Signal wait .  Inter Used
     uint16_t state16; // for the long proc used to as the jump address.  Inter Used
-#if  StaticProcModeQuickly == 1
-    uint16_t evtarray[StaticProcWaitEvtCnt];
-#endif    
     Var32    procdata; // hold the local temp data .  User Use。
+#if StaticProcModeQuick == 1 
+    uint16_t evtarray[StaticProcWaitEvtCnt] ;
+#endif    
 }LongProcData, * LPLongProcData;
 
 
 
 
-#if  StaticProcModeQuickly == 1     
-// use the state8  store the event count we need to check : for wait one , it's 1
- // the event is stored one by one in evtarray
+#if  StaticProcModeQuick == 1   
+// help function for static proc mode 
+// use the state8  store the event id , the event is stored in evtarray index is id 
     #define ThdWaitSig(lpdata,evt,sig)	        \
       do {						\
              (lpdata)->state8 = 1 ;                     \
@@ -468,28 +477,28 @@ typedef void  (* LPInitFuc)(LPThdBlock lpblock,StdEvt evt) ;
 #define ThdBlockOption_Lock4   BIT3  
 #define ThdBlockOption_Lock5   BIT4
 #define ThdBlockOption_Lock6   BIT5  
-#define ThdBlockOption_Lock7   BIT6  
-#define ThdBlockOption_Lock_Mask  0x7f
-
+#define ThdBlockOption_Lock_Mask  0x3f
+// do not allow any other longproc running , AddActiveProc will check if there is a any proc id is running , if so it will abandon the add .
+#define ThdBlockOption_HardWareLock   BIT6
 // do not allow  duplicate longproc running , AddActiveProc will check if there is a same proc id is running , if so it will abandon the add .
-#define ThdBlockOption_NotSame_LongProc   BIT7 
+#define ThdBlockOption_NotSameProc        BIT7 
 
 typedef struct ThdBlock_
 {
-    
+    LPInitFuc   lpinit ;    //4byte. thread's  default deal function pointer 
     LPLongProc * fuc ;      //4byte. thread's  LongProc 数组指针头  .  it hold the all longproc pointer 
     StdPool   pool;         //8byte. thread's  event Queue .   
     
     uint32_t  procbit ;     //low 32bit to mark which common proc data is used by this thread .   the common proc data used by all block.
 #if Use_Max_Proc == 1 
-    uint32_t  procbith ;    // high 32bit to mark which common proc data used .  the common proc data used by all block.
+    uint32_t  prochbit ;    // high 32bit to mark which common proc data used .  the common proc data used by all block.
 #endif     
-    //  procbit : procbith  also marked , which longproc of this thread is actived .                           
+    
     
     uint8_t   proccnt;      // temp value , for local use . recorder the item count of fuc array  actived in this block.
     uint8_t   index;        // index in the actor array. 
     uint8_t   option ;      // specail option bit  as ThdBlockOption_xxx
-    uint8_t   res ;   // no used.
+    uint8_t   res ;  // no used
 } ThdBlock, *LPThdBlock;
 
 
@@ -503,7 +512,7 @@ __STATIC_INLINE void SetThdLock(LPThdBlock lpthd , uint8_t lock)
     lpthd->option &= (~lock) ;
 }
 
-__STATIC_INLINE uint8_t IsThdLocked(LPThdBlock lpthd , uint8_t lock)
+__STATIC_INLINE uint8_t IsNotThdLocked(LPThdBlock lpthd , uint8_t lock)
 {// is 1 means lock not used , is 0 means lock is locked.
     return lpthd->option & lock ? 0 : 1 ;
 }
@@ -523,11 +532,11 @@ uint16_t getevtmemlength(StdEvt evt);
 // 设置Block当前允许运行的LongProc，Evt为发给Block的初始事件 ，可选 注意 LongProc实际一旦允许会收到当前Block的所有消息，其必须对消息进行过滤，只处理其所关注的消息。
 
 // thdid : the thdblock id ,  procid  : the local static proc id ,    evt : the initail active  evt ,   it is used for the static proc to start when receive  specail evt 
-void  AddActiveProcById(BlockId thdid,uint8_t procid, StdEvt evt) ;
-void  AddActiveProc(LPThdBlock lpb,uint8_t procid, StdEvt evt) ;
+uint8_t  AddActiveProcById(BlockId thdid,uint8_t procid) ;
+uint8_t  AddActiveProc(LPThdBlock lpb,uint8_t procid) ;
 // 取消某一个LongProc， 这个通常由LongProc在其结束时自行调用。 
-void  DelActiveProcById(BlockId thdid,uint8_t procid);
-void  DelActiveProc(LPThdBlock lpb,uint8_t procid) ;
+//void  DelActiveProcById(BlockId thdid,uint8_t procid);
+//void  DelActiveProc(LPThdBlock lpb,uint8_t procid) ;
 
 
 // 设置Block的Longproc函数组地址，addr为第一个LongProc的地址 这个地址指向一个静态的指针数组， 整个系统中最大允许有32个LongProc同时运行 ，因为系统分配的

@@ -17,7 +17,7 @@ __STATIC_INLINE void setnetidtoaddr(uint16_t addr ,uint16_t netid)
 }
 __STATIC_INLINE uint16_t getaddrbynetid(uint16_t netid)
 {
-    if(netid < MaxNetId)    return NetIdAddrArray[netid] ;
+    return NetIdAddrArray[netid] ;
 }
 
 #endif
@@ -30,14 +30,14 @@ __STATIC_INLINE uint16_t getaddrbynetid(uint16_t netid)
 static uint8_t ChildNodeLiveCnt[ChildNodeCnt];
 static uint8_t NodeActiveCnt = 0;
 // check if the local node ,active cnt is over time .
-uint8_t SubActiveCnt(void)
+uint8_t SubLocalLiveCnt(void)
 {
     if(NodeActiveCnt > 0)
     {
         NodeActiveCnt -- ;
         return 0;
     }
-    NodeActiveCnt = globaldata.cfgdata.ActivePeriod ;
+//    NodeActiveCnt = globaldata.cfgdata.ActivePeriod ;
     return 1 ;
 }
 // set local node as just register ok - max live count
@@ -82,7 +82,7 @@ uint8_t  SubFatherLiveCnt(void)
         
 }
 // sub all item 1 , if it's 0 reset the fitable bitmap bit .
-void  SubLiveCnt(void)
+void  SubChildLiveCnt(void)
 {
     uint32_t bitmap ;
     uint8_t res ,index;
@@ -1220,7 +1220,7 @@ void rflayerdataInit(void)
     NodeActiveCnt =  0;
 #if Nodetype == RootNode
     
-    if(NetIdAddrArray &0x03)
+    if(((uint32_t) NetIdAddrArray) &0x03)
     { // not 4 byte assigned .
         NetIdAddrArray[0] =  0xffff ;
         lp32 = (uint32_t *)(&NetIdAddrArray[1]);
@@ -1282,13 +1282,16 @@ void rflayerdatarelease(void)
 
 uint8_t CheckRtcFreeDay(void)  
 {
+#if  Nodetype !=  RootNode     
     if(rflayerdata.rfmode < rf_monitor)
         return 0;
     if(rflayerdata.rtcfreeday > Max_RtcFreeCnt)
         return 1 ;
     else
         rflayerdata.rtcfreeday ++; 
+#endif   
     return 0;
+   
 }
 
  //  rf receive a new msg . check it : if the msg is a ack msg , remove the wait queue  if there is . else do mac proc 
@@ -1362,8 +1365,13 @@ void MacRecvProc(uint8_t msg)
             if(ischildaddr(lpframe->SendAddr))
             {
                #if Nodetype  == RootNode   
-                    evt = makeevt(Sig_Rf_Recv_Msg,msg);
-                    postevtbyindex(BlcId_Net,evt);  
+                    #if  Use_Big_Evt  == 0                  
+                    temp.data16.data0 = makeevt(Sig_Rf_Recv_Msg,msg);
+                    postevtbyindex(BlcId_Net,temp.data16.data0);  
+                    #else
+                    temp.data32 = makeevt(Sig_Rf_Recv_Msg,msg);
+                    postevtbyindex(BlcId_Net,temp.data32);    
+                    #endif    
                     setnetidtoaddr(lpframe->VarAddr,lpframe->NetId)    ;
                #else 
                     ResetLiveCntByAddr(lpframe->SendAddr); 

@@ -10,6 +10,7 @@
 // and the option has SftOpt_Quick set . then when time over  this function is called in the softtimer interrupt no delay
 void SftQuickProc(StdEvt  param)
 {
+    param = getevtid(param);
     if(param == Sig_50Hz_Duty)
     {
         GPIO_ResetOutputPin(CMP2_INN_PORT,CMP2_INN_PIN);  

@@ -1058,7 +1058,15 @@ void  OnLoraIqr(void)
         { 
             temp.data8.data0 = ReadFifo();
             if(temp.data8.data0 != InvalidId)
-                MacRecvProc(temp.data8.data0);
+            {
+                #if  Use_Big_Evt  == 0                  
+                temp.data16.data1 = makeevt(Sig_Rf_Recv_Data,temp.data8.data0);
+                postevtbyindex(BlcId_Net,temp.data16.data1);  
+                #else
+                temp.data32 = makeevt(Sig_Rf_Recv_Data,temp.data8.data0);
+                postevtbyindex(BlcId_Net,temp.data32);    
+                #endif                    
+            }
         }
         goto ReStartCad ;
     }

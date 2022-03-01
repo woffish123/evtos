@@ -1033,6 +1033,7 @@ void InitLpUart0(void)
     LPUART0->IER = LPUART_IER_RXEV_IE_Msk ;
    
     //start recv
+    ClrHalStatu(Hal_Statu_LpUartSnd);
     cmdport.lplpuartrecv = NULL ;
     LPUART_EnabledRx(LPUART0);
     
@@ -1123,7 +1124,7 @@ void LPUART0_IRQHandler(void)
             else
             {
                 LPUART_DisableTx(LPUART0);
-                //ClrHalStatu(Hal_Statu_LpUartSnd);
+                ClrHalStatu(Hal_Statu_LpUartSnd);
             }
         }
 	}
@@ -1157,10 +1158,11 @@ void LpUart0Send(StdEvt evt)
         return ;
     }
 #if _ASSERT    == 1
-    if(CheckRegBit(LPUART0->IER , LPUART_IER_TXSE_IE))
+    if(CheckHalStatu(Hal_Statu_LpUartSnd))
         return ;
 #endif    
-    // there is no evt being send now . do send .
+    // there is no evt being send now . do send 
+    SetHalStatu(Hal_Statu_LpUartSnd);
     cmdport.lplpuartsend   = (uint8_t *)getevtmem(evt);     
     cmdport.lpuartsendindex = 0 ;
     cmdport.lpuartsendcnt = getevtmemlength(evt);
@@ -1176,15 +1178,16 @@ void ClearUart0Send(void)
 // try to send the Log data out . send when there is no evt is sending 
 uint8_t SendLog(uint8_t data) 
 {
-    if(GetQueueCnt(&LpUartSendQueue) == 0)
-    {
-        LPUART0->TXBUF =data;
-        SetRegBit(LPUART0->IER , LPUART_IER_TXSE_IE); 
-        ClrRegBit(LPUART0->IER , LPUART_IER_TXBE_IE);    
-        LPUART_EnabledTx(LPUART0);  
-        return 1 ;    
-    }
-    return 0;
+    // there is no evt being send now . do send 
+    if(CheckHalStatu(Hal_Statu_LpUartSnd))
+        return 0;
+    SetHalStatu(Hal_Statu_LpUartSnd); 
+    LPUART0->TXBUF =data;
+    SetRegBit(LPUART0->IER , LPUART_IER_TXSE_IE); 
+    ClrRegBit(LPUART0->IER , LPUART_IER_TXBE_IE);    
+    LPUART_EnabledTx(LPUART0);  
+    return 1 ;    
+
 }
 // uart0 part 
 // init the Uart0 . used to receive cmd ,and reset to go to boot mode .

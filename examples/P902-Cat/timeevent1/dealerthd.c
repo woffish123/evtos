@@ -4,15 +4,25 @@
 // process cmddealer  : use to do some long proc cmd dealer 
 volatile CmdDealer cmddealer ;
 StdEvt CmdDealerEvtLoop[Max_CmdDealerEvt];
+static LPLongProc  const DealerProcArray[]=
+{
+    MotorProc0,
+    MotorProc1,
+    MagnetSetTimeProc,
+    0,
+    0
+};
+
 
 
 
 void CmdDealerInit(void)
 {
     // set longproc function array
+    SetThdOption((LPThdBlock)(&cmddealer),ThdBlockOption_NotSameProc);
     SetProcAddr((LPThdBlock)(&cmddealer) ,(LPLongProc const *)DealerProcArray);
     // set a longproc  active 
-    AddActiveProc((LPThdBlock)(&cmddealer),MagnetSetTimeProcId,Sig_None); 
+    //AddActiveProc((LPThdBlock)(&cmddealer),MagnetSetTimeProcId); 
 }
 // CmdDealer Proc do the longProc calling 
 void CmdDealer_initial(LPThdBlock const lpb, StdEvt evt)
@@ -81,7 +91,7 @@ void CmdDealer_initial(LPThdBlock const lpb, StdEvt evt)
             return;
         }
         case Sig_MotorProc0_Done :
-            DelActiveProc((LPThdBlock)(&cmddealer),0);
+//            DelActiveProc((LPThdBlock)(&cmddealer),0);
             evt = newevt(Sig_None,PoolId1);
             lpTx = (uint8_t * )getevtmem( evt);
             lpTx[0] = 'M' ;
@@ -99,7 +109,7 @@ void CmdDealer_initial(LPThdBlock const lpb, StdEvt evt)
             LpUart0Send(evt);                
             break;
         case Sig_MotorProc1_Done :
-            DelActiveProc((LPThdBlock)(&cmddealer),1);
+//            DelActiveProc((LPThdBlock)(&cmddealer),1);
             evt = newevt(Sig_None,PoolId1);
             lpTx = (uint8_t * )getevtmem( evt);
             lpTx[0] = 'M' ;
@@ -128,7 +138,8 @@ void CmdDealer_initial(LPThdBlock const lpb, StdEvt evt)
 // start with Sig_Motor2_Test . end report  Sig_MotorProc1_Done
 uint8_t MotorProc0(StdEvt evt,LPLongProcData lpdata)
 {
-    ThdBeginSig(lpdata,evt,Sig_Motor2_Test);
+    ThdBegin(lpdata);
+    ThdWaitSig(lpdata,evt,Sig_Motor2_Test);
     // 初始化语句 ， 下列语句必须在正式开始前被系统进行一次调用以便达到正式等待的状态。
     lpdata->procdata.data32 = 1 ;
     // 初始化语句结束， 开始等待第一个状态， 这里是程序正式开始执行的部分， 在相应的信号到来时被执行。
@@ -163,7 +174,8 @@ uint8_t MotorProc0(StdEvt evt,LPLongProcData lpdata)
 // start with Sig_Motor2_Test . end report  Sig_MotorProc1_Done
 uint8_t MotorProc1(StdEvt evt,LPLongProcData lpdata)
 {
-    ThdBeginSig(lpdata,evt,Sig_Motor1_Test);
+    ThdBegin(lpdata);
+    ThdWaitSig(lpdata,evt,Sig_Motor1_Test);
     // 初始化语句 ， 下列语句必须在正式开始前被系统进行一次调用以便达到正式等待的状态。
     lpdata->procdata.data32 = 1 ;
     // 初始化语句结束， 开始等待第一个状态， 这里是程序正式开始执行的部分， 在相应的信号到来时被执行。
@@ -196,7 +208,8 @@ uint8_t MotorProc1(StdEvt evt,LPLongProcData lpdata)
 //
 uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
 {
-    ThdBeginSig(lpdata,evt,Sig_Magnet1_On);
+    ThdBegin(lpdata);
+    ThdWaitSig(lpdata,evt,Sig_Magnet1_On);    
     // init time value .
     lpdata->procdata.data32 = 0xffffffff ;
 

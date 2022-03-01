@@ -87,7 +87,7 @@ void CmdPort_initial(LPThdBlock const lpb, StdEvt evt)
         }  
         case Sig_TestProc0 :
         {
-            AddActiveProcById(BlcId_CmdDealer,MotorProc0Id,Sig_Motor2_Test); 
+            AddActiveProcById(BlcId_CmdDealer,MotorProc0Id); 
             break;
         }
         case Sig_Rtc_Adjust :
@@ -123,7 +123,7 @@ void CmdPort_initial(LPThdBlock const lpb, StdEvt evt)
 
         case Sig_Lora_GetTime :
         {
-            AddActiveProcById(BlcId_Net ,RfGetRtcTimeId,Sig_Rf_GetTime); 
+            AddActiveProcById(BlcId_Net ,RfGetRtcTimeId); 
             break;
         } 
         case Sig_GetRfMode :
@@ -139,19 +139,22 @@ void CmdPort_initial(LPThdBlock const lpb, StdEvt evt)
             GetDevState(&lprecvbuf[8]);
  
             break;
-        }        
+        }   
+        case Sig_GotoBoot :    
+            SetCheckBoot();
         case Sig_DelayReset :
         {
             lprecvbuf[0] = GetFreeSoftTimer();
-            SetSoftTimerDelayMs(lprecvbuf[0],6000);
+            SetSoftTimerDelayMs(lprecvbuf[0],2000);
             SoftTimerBlockAndOpt(lprecvbuf[0] ,0,SftOpt_Quick);
             SetSoftTimerEvt(lprecvbuf[0], Sig_DelayReset);
             StartSoftTimer(lprecvbuf[0]);          
+            lprecvbuf[0]= 0xee;
             break;
         }
         case Sig_ShutDown :
         {
-            lprecvbuf[CmdByteIndex] = 0xAA ; // unkonw cmd recv  send oxff back.
+            lprecvbuf[CmdByteIndex] = 0xAA ; 
             GotoLowPowerMode();
             break;
         }        

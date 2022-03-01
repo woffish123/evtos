@@ -84,7 +84,7 @@ extern volatile uint32_t HalStatu;
 // uart0 is in recv mode  DMA is used.
 #define Hal_Statu_UartRcv     (0x1U  <<1)
 // uart0 is in send mode .DMA is used  not used
-#define Hal_Statu_UartSnd     (0x1U <<2)
+#define Hal_Statu_LpUartSnd     (0x1U <<2)
 // ADC is running  DMA is used 
 #define Hal_Statu_ADC            (0x1U <<3)  
 // hal1 detected magnet  
@@ -207,6 +207,8 @@ void GotoSleep(void) ;
 #define SetCheckBoot()    BootEnableRegister = BootEnableMask
 #define ClrCheckBoot()    BootEnableRegister = 0
 #define CheckBoot()       BootEnableRegister == BootEnableMask
+
+
 // read time  ,time data in uint8_t buffer formate in bcd code .  like this : s ,m ,h,m,y,w, sigh,sigl.
 uint32_t RtcGetTime(void) ;
 // set time 
@@ -240,15 +242,7 @@ typedef struct quotremain_
 // return 0   successed . return 1  divzero find .
 uint8_t HardDiv(QuotRemain * value);
 
-#define GpsHeader   '$'
-#define GpsEnder1    13
-#define GpsEnder2    10
-// header char and End char to check if a valid cmd .
-#define CmdHeader   '<'
-#define CmdEnder    '>'
 #define LPUARTBUFLEN 12
-#define CmdRetHeader  '['
-#define CmdRetEnder   ']'
 
 
 // in sleep mode Uart0  the first cmd byte will not be received, and the second will be received , but the content is error .

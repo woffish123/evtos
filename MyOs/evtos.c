@@ -139,11 +139,18 @@ void ResetQueue(StdQueue * lpQueue)
 typedef struct EvtFrame_
 {
 	LPThdBlock lpactor[ActorCnt+1]; // store the activor information
-    LPInitFuc  lpinit[ActorCnt+1];  // store the default proc for every activor 
-
     // a common longproc data
     LongProcData  longprocdata[MAX_LONGPROC_CNT];
-    
+/*    
+#if  StaticProcModeQuick == 1     
+    // store the real event .
+    StdEvt        sigarray[MAX_LONGPROC_CNT*StaticProcWaitEvtCnt];
+    // store the next id for evtarray
+    uint8_t       sigidmap[MAX_LONGPROC_CNT*StaticProcWaitEvtCnt];
+    // store the first id for static proc .
+    uint8_t       sigheader[MAX_LONGPROC_CNT];
+#endif    
+    */
     uint32_t  longprocbit ;
 #if Use_Max_Proc == 1     
     uint32_t  longprochbit ;
@@ -156,7 +163,12 @@ typedef struct EvtFrame_
     uint16_t  bitmap;
 #else
     uint8_t   bitmap;    
-#endif       
+#endif  
+/*
+#if  StaticProcModeQuick == 1 
+    uint8_t   freesigheader ;
+#endif
+*/
 }EvtFrame;
 
 
@@ -422,6 +434,21 @@ void ThdFrameInit(void)
         i--;
     }
     actorcnt = 0 ;
+/*    
+#if  StaticProcModeQuick == 1    
+    
+    for(i = 0 ; i< MAX_LONGPROC_CNT*StaticProcWaitEvtCnt ; i++)
+    {
+        evtframe.sigidmap[i] = i+1 ;
+    }
+    for(i = 0 ; i< MAX_LONGPROC_CNT ; i++)
+    {
+        evtframe.sigheader[i] = InvalidId ;
+    }    
+    evtframe.freesigheader = 0 ;
+#endif     
+ */   
+    
     evtframe.longprocbit = 0xffffffff;
 #if Use_Max_Proc == 1     
     evtframe.longprochbit = 0xffffffff;
@@ -463,6 +490,29 @@ void ThdFrameInit(void)
 #endif  
     stacksetmark() ;
 }
+/*
+// help function for static proc 
+#if  StaticProcModeQuick == 1    
+
+// insert a new evt to static proc m after id
+// id 
+uint8_t  addprocsig(uint8_t id,uint16_t sig)
+{
+    uint8_t next ;
+    assert(evtframe.freesigheader != InvalidId);
+    next = evtframe.freesigheader ;
+    evtframe.freesigheader = evtframe.sigidmap[next];
+    evtframe.sigarray[next] = sig ;    
+    evtframe.sigidmap[next] = InvalidId;        
+    if(id != InvalidId)
+    { 
+        evtframe.sigidmap[id] = next ;   
+    }
+    return next ;
+}
+
+#endif
+*/
 // the earlyer init actor has higher piriority
 void ThdActorInit(LPThdBlock lpb , LPStdEvt lppool,uint8_t cnt, LPInitFuc lpinit)
 {
@@ -474,10 +524,10 @@ void ThdActorInit(LPThdBlock lpb , LPStdEvt lppool,uint8_t cnt, LPInitFuc lpinit
     INT_DISABLE();
     lpb->procbit = 0 ;
 #if Use_Max_Proc == 1     
-    lpb->procbith = 0;
+    lpb->prochbit = 0;
 #endif      
     lpb->proccnt = 0 ;
-    lpb->option = ThdBlockOption_Lock_Mask ;
+    lpb->option = 0 ;
 
     
     lpb->fuc = NULL ;
@@ -490,21 +540,22 @@ void ThdActorInit(LPThdBlock lpb , LPStdEvt lppool,uint8_t cnt, LPInitFuc lpinit
 
     lpb->index = actorcnt;
     evtframe.lpactor[actorcnt] = lpb;
-    evtframe.lpinit[actorcnt] = lpinit ; 
+    //evtframe.lpinit[actorcnt] = lpinit ; 
+    evtframe.lpactor[actorcnt]->lpinit = lpinit ;
     actorcnt ++ ;  
     INT_ENABLE();
 }
 // 增加当前Block的LongProc处理函数，并将进行一次
 // 注意对于同一个Block 不允许同一个LongProc函数被同时多次激活， 否则系统无法判断 结束时应结束哪一个LongProc 
 // evt为首次触发的事件， 每一个Proc 应该有一个独立的首次触发事件，以及一个结束事件。 用于使过程的激活可控。
-// 当处理函数不需要特定的条件才能开始运作， 而是一直处于等待一个简单事件就激活时， 不需要给evt ， ， 而直接等待那个事件。
-void AddActiveProcById(BlockId thdid,uint8_t procid,StdEvt evt)
+// return  :1  faild to add active proc , 0: success.
+uint8_t AddActiveProcById(BlockId thdid,uint8_t procid)
 {
     assert(thdid < BlcId_None ) ;
-    AddActiveProc(evtframe.lpactor[thdid],procid,evt);
+    return AddActiveProc(evtframe.lpactor[thdid],procid);
 }
 
-void  AddActiveProc(LPThdBlock lpb,uint8_t procid, StdEvt evt) 
+uint8_t  AddActiveProc(LPThdBlock lpb,uint8_t procid) 
 {
     uint32_t bit ;
     uint8_t  temp ;
@@ -516,8 +567,17 @@ void  AddActiveProc(LPThdBlock lpb,uint8_t procid, StdEvt evt)
 #else      
     assert((evtframe.longprocbit!=0)|| (evtframe.longprochbit!=0)) ;
 #endif
+    // check if allow other active porc running 
+    if(lpb->option & ThdBlockOption_HardWareLock)
+    {
+    #if Use_Max_Proc != 1     
+        if(lpb->procbit !=0) return 1;
+    #else      
+        if((lpb->procbit!=0)|| (lpb->prochbit !=0))  return 1;
+    #endif    
+    }
     // check is allow duplicate longproc running 
-    if(lpb->option & ThdBlockOption_NotSame_LongProc)
+    if(lpb->option & ThdBlockOption_NotSameProc)
     { //
         // find free postion .
         if(lpb->procbit !=0)
@@ -528,25 +588,26 @@ void  AddActiveProc(LPThdBlock lpb,uint8_t procid, StdEvt evt)
                 if(lpb->procbit & bit) 
                 {// clear the global free bit.
                     if(evtframe.longprocdata[temp].procid == procid)
-                         return ;   
+                         return 1;   
                 }
             }
         }
     #if Use_Max_Proc == 1      
-        if(lpb->procbith !=0)
+        if(lpb->prochbit !=0)
         {// has not find 
             bit = 1 ;
             for(temp =32 ; temp <64 ; temp++, bit<<=1 )
             {
-                if(lpb->procbith & bit) 
+                if(lpb->prochbit & bit) 
                 {// clear the global free bit.
                     if(evtframe.longprocdata[temp].procid == procid)
-                         return ;   
+                         return 1;   
                 }
             }
         }
     #endif    
     }
+
     // find free postion .
     if(evtframe.longprocbit!=0)
     {
@@ -554,7 +615,7 @@ void  AddActiveProc(LPThdBlock lpb,uint8_t procid, StdEvt evt)
         for(temp =0 ; temp <32 ; temp++, bit<<=1 )
         {
             if(evtframe.longprocbit & bit) 
-            {// clear the global free bit.
+            {   // clear the global free bit.
                 evtframe.longprocbit &=  (~bit);
                 // store free bit in local .
                 lpb->procbit |= bit ;      
@@ -583,7 +644,7 @@ void  AddActiveProc(LPThdBlock lpb,uint8_t procid, StdEvt evt)
             {// clear the global free bit.
                 evtframe.longprochbit &=  (~bit);
                 // store free bit in local .
-                lpb->procbith |= bit ;      
+                lpb->prochbit |= bit ;      
                 lpb->proccnt ++ ;    
                 assert(lpb->proccnt <65) ;
                 // init the longproc data .
@@ -600,14 +661,14 @@ void  AddActiveProc(LPThdBlock lpb,uint8_t procid, StdEvt evt)
 #endif    
 
 
-    // add event to local block , if it is not Null;
-    if(evt == Sig_None)
-        return ;
-    // add a init evt to the first one.
-    insertevt(lpb,evt);  
+    // start init part .
+
+    (*(lpb->fuc[procid]))(Sig_None,(LPLongProcData)&evtframe.longprocdata[temp]) ;
+    outlog(log_proc_start);
+    return 0 ;
 }
 
-
+/* --removed manually calling the DelActiveProc when proc end ,  it will be call automaticlly  according the proc return value 
 void DelActiveProcById(BlockId thdid,uint8_t procid)
 {
     assert(thdid < BlcId_None ) ;
@@ -623,7 +684,7 @@ void  DelActiveProc(LPThdBlock lpb,uint8_t procid)
 #if Use_Max_Proc != 1        
     assert(lpb->procbit!=0) ;
 #else 
-    assert(((lpb->procbith|lpb->procbit) !=0)) ;
+    assert(((lpb->prochbit|lpb->procbit) !=0)) ;
 #endif    
     // first find the bit postion for the sepcail procid.
 #if Use_Max_Proc == 1       
@@ -660,7 +721,7 @@ void  DelActiveProc(LPThdBlock lpb,uint8_t procid)
     bit= 1 ;
     for(temp =32; temp < 64 ; temp++,bit<<=1)
     {
-        if(lpb->procbith & bit )
+        if(lpb->prochbit & bit )
         {
             if(evtframe.longprocdata[temp].procid  == procid)
             { // find the longproc bit postion.
@@ -669,7 +730,7 @@ void  DelActiveProc(LPThdBlock lpb,uint8_t procid)
                 evtframe.longprochbit |= bit ;
                 // clear the local bit .
                 bit = ~bit ;
-                lpb->procbith &= bit ;
+                lpb->prochbit &= bit ;
                 assert(lpb->proccnt >0) ;
                 lpb->proccnt -- ; 
                 evtframe.longprocdata[temp].state16 = 0 ;
@@ -682,11 +743,9 @@ void  DelActiveProc(LPThdBlock lpb,uint8_t procid)
         }
     }    
 #endif  
-
-
-    
+   
 }
-
+*/
 
 // there is a fatal error happend ,  stop the message loop , 
 #if _ASSERT  == 1
@@ -698,21 +757,23 @@ uint8_t logbuf[MaxLogBuf] ;
 
 void outlog(LogByte byte)
 {
-    if(SendLog(byte))    
-        return ;
-    logbuf[logbufend] = byte ;
-    logbufend ++ ;
-    logbufend &= 0x0f ;  //loop back.
-    if(logbufend == logbufhead)
-        logbufhead = logbufend+1 ;
-    logbufhead &= 0x0f ;  //loop back. 
-
+    INT_DISABLE();
+    if(!SendLog(byte))  
+    {
+        logbuf[logbufend] = byte ;
+        logbufend ++ ;
+        logbufend &= 0x0f ;  //loop back.
+        if(logbufend == logbufhead)
+            logbufhead = logbufend+1 ;
+        logbufhead &= 0x0f ;  //loop back. 
+    }
+    INT_ENABLE();
 }
 LogByte getlog(void)
 {
    LogByte res;
    if(logbufend == logbufhead) 
-       return log_nothing ;
+       return log_nothing ; // 0 
    res = (LogByte)logbuf[logbufhead];
    logbufhead ++ ;
    logbufhead &= 0x0f ;  //loop back.
@@ -820,7 +881,10 @@ void assert_(char * file,uint16_t line, uint8_t b)
 
 void ThdRun(void)
 {
-    uint8_t index,temp,flage;
+    uint8_t index,flage;
+#if  StaticProcModeQuick == 1 
+    uint8_t  temp ;
+#endif    
     uint32_t bit ;
 	StdEvt  evt ;
 	LPThdBlock lpb;
@@ -845,15 +909,16 @@ void ThdRun(void)
                 bit = lpb->procbit ;
                 while(bit)
                 {
-                    temp = 31;
-                    if(bit &0x0000ffff)    { temp  -= 16 ; bit &= 0x0000ffff; }
-                    if(bit &0x00ff00ff){ temp  -= 8  ; bit &= 0x00ff00ff; }
-                    if(bit &0x0f0f0f0f){ temp  -= 4  ; bit &= 0x0f0f0f0f; }
-                    if(bit &0x33333333){ temp  -= 2  ; bit &= 0x33333333; }   
-                    if(bit &0x55555555)  temp -= 1 ;
-                    bit ^= (0x00000001<<temp);
-                    lpprocdata =(LPLongProcData) &(evtframe.longprocdata[temp]);                    
-#if  StaticProcModeQuickly == 1    
+                  
+                    index = 31;
+                    if(bit &0x0000ffff)    { index  -= 16 ; bit &= 0x0000ffff; }
+                    if(bit &0x00ff00ff){ index  -= 8  ; bit &= 0x00ff00ff; }
+                    if(bit &0x0f0f0f0f){ index  -= 4  ; bit &= 0x0f0f0f0f; }
+                    if(bit &0x33333333){ index  -= 2  ; bit &= 0x33333333; }   
+                    if(bit &0x55555555)  index -= 1 ;
+                    bit ^= (0x00000001<<index);
+                    lpprocdata =(LPLongProcData) &(evtframe.longprocdata[index]);                    
+#if  StaticProcModeQuick == 1    
                     for(temp = 0 ; temp < lpprocdata->state8 ; temp ++ )   
                     {
                         if(flage == 0)    
@@ -869,7 +934,19 @@ void ThdRun(void)
                                    lpprocdata->state8 --;
                                    if(lpprocdata->state8 == 0)
                                    {
-                                        (*(lpb->fuc[lpprocdata->procid]))(evt,lpprocdata) ;
+                                        if((*(lpb->fuc[lpprocdata->procid]))(evt,lpprocdata))
+                                        {   
+                                            lpb->proccnt -- ; 
+                                            lpprocdata->state16 = 0 ;
+                                            lpprocdata->procdata.data32 =0 ;
+                                            lpprocdata->procid = 0 ;
+                                            lpprocdata->state8 = 0 ;
+                                            bit = (0x00000001<<index);
+                                            lpb->procbit ^= bit ;
+                                            evtframe.longprocbit |= bit ;
+                                            
+                                        }
+                                        outlog(log_test);
                                    }
                                    lpprocdata->evtarray[temp] = lpprocdata->evtarray[temp+1];
                                }
@@ -881,25 +958,36 @@ void ThdRun(void)
                        
 #else                            
                       flage=(*(lpb->fuc[lpprocdata->procid]))(evt,lpprocdata) ;
-#endif //StaticProcModeQuickly                  
-                }// end while .
+                      if(flage == ThdProc_Exit)  
+                      {
+                          lpb->proccnt -- ; 
+                          lpprocdata->state16 = 0 ;
+                          lpprocdata->procdata.data32 =0 ;
+                          lpprocdata->procid = 0 ;
+                          lpprocdata->state8 = 0 ;
+                          bit = (0x00000001<<index);
+                          lpb->procbit ^= bit ;
+                          evtframe.longprocbit |= bit ;                            
+                      }                      
+#endif //StaticProcModeQuick                  
+                }// end proc bit check while .
 #if Use_Max_Proc == 1 
                 if(flage == 0 )
                 {                
-                    if(lpb->procbith > 0)
+                    if(lpb->prochbit > 0)
                     {
-                        bit = lpb->procbith ;
+                        bit = lpb->prochbit ;
                         while(bit)
                         {
-                            temp = 31;
-                            if(bit &0x0000ffff)    { temp  -= 16 ; bit &= 0x0000ffff; }
-                            if(bit &0x00ff00ff){ temp  -= 8  ; bit &= 0x00ff00ff; }
-                            if(bit &0x0f0f0f0f){ temp  -= 4  ; bit &= 0x0f0f0f0f; }
-                            if(bit &0x33333333){ temp  -= 2  ; bit &= 0x33333333; }   
-                            if(bit &0x55555555)  temp -= 1 ;
-                            bit ^= (0x00000001<<temp);
-                            lpprocdata =(LPLongProcData) &(evtframe.longprocdata[temp+32]);                    
-        #if  StaticProcModeQuickly == 1    
+                            index = 31;
+                            if(bit &0x0000ffff)    { index  -= 16 ; bit &= 0x0000ffff; }
+                            if(bit &0x00ff00ff){ index  -= 8  ; bit &= 0x00ff00ff; }
+                            if(bit &0x0f0f0f0f){ index  -= 4  ; bit &= 0x0f0f0f0f; }
+                            if(bit &0x33333333){ index  -= 2  ; bit &= 0x33333333; }   
+                            if(bit &0x55555555)  index -= 1 ;
+                            bit ^= (0x00000001<<index);
+                            lpprocdata =(LPLongProcData) &(evtframe.longprocdata[index+32]);                    
+        #if  StaticProcModeQuick == 1    
                             for(temp = 0 ; temp< lpprocdata->state8 ; temp++ )   
                             {
                                 if(flage == 0)    
@@ -915,7 +1003,18 @@ void ThdRun(void)
                                            lpprocdata->state8 --;
                                            if(lpprocdata->state8 == 0)
                                            {
-                                                (*(lpb->fuc[lpprocdata->procid]))(evt,lpprocdata) ;
+                                                if((*(lpb->fuc[lpprocdata->procid]))(evt,lpprocdata))
+                                                {   
+                                                    lpb->proccnt -- ; 
+                                                    lpprocdata->state16 = 0 ;
+                                                    lpprocdata->procdata.data32 =0 ;
+                                                    lpprocdata->procid = 0 ;
+                                                    lpprocdata->state8 = 0 ;
+                                                    bit = (0x00000001<<index);
+                                                    lpb->prochbit ^= bit ;
+                                                    evtframe.longprochbit |= bit ;
+                                                    
+                                                }
                                            }
                                             lpprocdata->evtarray[temp] = lpprocdata->evtarray[temp+1];
                                        }
@@ -924,16 +1023,27 @@ void ThdRun(void)
                                      lpprocdata->evtarray[temp]= lpprocdata->evtarray[temp+1] ;       // maybe flow ,but no influence                        
                             } //end for 
         #else                            
-                              flage=(*(lpb->fuc[lpprocdata->procid]))(evt,lpprocdata) ;
-        #endif   //StaticProcModeQuickly             
-                        }// end while .
+                            flage= (*(lpb->fuc[lpprocdata->procid]))(evt,lpprocdata) ;
+                            if(flage == ThdProc_Exit)  
+                            {
+                                lpb->proccnt -- ; 
+                                lpprocdata->state16 = 0 ;
+                                lpprocdata->procdata.data32 =0 ;
+                                lpprocdata->procid = 0 ;
+                                lpprocdata->state8 = 0 ;
+                                bit = (0x00000001<<index);
+                                lpb->prochbit ^= bit ;
+                                evtframe.longprochbit |= bit ;                            
+                            }
+        #endif   //StaticProcModeQuick             
+                        }// end bit while .
                     }
                 }    
  #endif    //Use_Max_Proc   
             }// end lpb->proccnt > 0
             // the event has not been deal by longproc  , deal it with default proc  .       
             if( flage == 0)
-                (*evtframe.lpinit[index])(lpb,evt) ;
+                (*lpb->lpinit)(lpb,evt) ;
         }
 	    else
 	    {   

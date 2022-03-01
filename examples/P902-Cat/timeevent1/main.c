@@ -35,10 +35,10 @@ int32_t main(void)
     
     
     // init task block.
-    CmdPortInit();    
-    CmdDealerInit();
     HalMasterInit();
+    CmdPortInit();    
     NetMasterInit();    
+    CmdDealerInit();
     //.. task init end .
     
 
@@ -51,7 +51,7 @@ int32_t main(void)
     postevtbyindex(BlcId_Hal,Sig_Rtc_FixHourInt);
     // start a register cmd , to start Rf net register  . 
     // reset the livecnt for RF node is set as zero .  receive Sig_Rf_DayOver will start Rf Net Register proc .
-    //postevtbyindex(BlcId_Net,Sig_Rf_DayOver);
+    postevtbyindex(BlcId_Net,Sig_Rf_DayOver);
 
 
     // .. pre work end  , enable interrupt.

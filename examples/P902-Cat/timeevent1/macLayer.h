@@ -62,11 +62,11 @@ typedef  struct _CfgInformation_
 } CfgInformation ,* LPCfgInformation ;  
 
 
-void  SubLiveCnt(void) ;
+void  SubChildLiveCnt(void) ;
 // sub father live cnt , return 1 ,if father live cnt is not 0 ,else return 0 
 uint8_t  SubFatherLiveCnt(void) ;
 // sub active cnt ,if it return 1 -> active period is overtimed.
-uint8_t SubActiveCnt(void);
+uint8_t SubLocalLiveCnt(void);
 void ResetActiveCnt(void) ;    
 // the net is a tree - leaf net .    tree node connect each other to make a net . and the leaf node connected with tree node only
 // there is also a specail node . it is the root node , all msg should be send to root node . 

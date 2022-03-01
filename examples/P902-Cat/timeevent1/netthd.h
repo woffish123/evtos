@@ -14,10 +14,11 @@
 
 // the max evt count ,net thread can hold .
 #define Max_NetMasterEvt   8 
+// max try to register times , register proc will send register  Max_Rgst_Cnt times , then give up  report register fiald.
 
-// we define a lora lock , to not allow the resource been share by different proc 
-#define RfHardWareLock   ThdBlockOption_Lock1
-
+#define Max_Rgst_Cnt  10 
+// interval period for register proc send ,  for n register times  it delay  n*Rgst_Delay_Base ms 
+#define Rgst_Delay_Base   4000   
 typedef struct NetMaster_
 {
     ThdBlock super ; 
@@ -53,12 +54,6 @@ typedef enum NetMasterProcId_
     RfGetRtcTimeId ,
 
 } NetMasterProcId ;
-static LPLongProc  const NetMasterProcArray[]=
-{
-    RfRegisterProc,
-    RfCheckUndirectMsgProc,
-    RfGetRtcTime   ,
-    0,
-};
+
 
 #endif // __net_layer_H
