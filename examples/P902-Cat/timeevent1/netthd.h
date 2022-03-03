@@ -37,14 +37,14 @@ void NetMasterInit(void);
 
 // for orphan node to start register , if it registered ok, it will try to get the rtc time  .
 // the rtc time is dealed by default mac proc . we just need to send a rtc cmd out .
-uint8_t RfRegisterProc (StdEvt evt,LPLongProcData lpdata);
+uint8_t RfRegisterProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 
 // try to send a mac checkundirect cmd to father , to get the possible undirect cmd .
 // this is called when the child actived and no data to send to father . -> it must send something to  father , to check undirect msg and also notify  it's still lived 
 // if the child send a data msg to father or root , the undirect msg is send back also .
-uint8_t RfCheckUndirectMsgProc (StdEvt evt,LPLongProcData lpdata);
+uint8_t RfCheckUndirectMsgProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 
-uint8_t RfGetRtcTime(StdEvt evt,LPLongProcData lpdata);
+uint8_t RfGetRtcTime(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 
 
 typedef enum NetMasterProcId_

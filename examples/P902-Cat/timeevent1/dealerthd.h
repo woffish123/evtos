@@ -24,9 +24,9 @@ void CmdDealer_initial(LPThdBlock const lpb, StdEvt evt);
 #define MagLongOVT        6000      // 6s over time 
 
 
-uint8_t MotorProc0(StdEvt evt,LPLongProcData lpdata);
-uint8_t MotorProc1(StdEvt evt,LPLongProcData lpdata);
-uint8_t MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata);
+uint8_t MotorProc0(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
+uint8_t MotorProc1(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
+uint8_t MagnetSetTimeProc(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 
 
 // define Id for Hal Proc  for simply using  .

@@ -561,9 +561,9 @@ typedef struct StdEvent_
 
 // the max wait event cnt is defined , all thd proc  has same count of wait array cnt  MAX Cnt is 4 
 
-#define StaticProcWaitEvtCnt   4
-    #if StaticProcWaitEvtCnt > 8
-        #error "MAX wait evt Cnt is bigger then 8"
+#define StaticProcWaitEvtCnt   2
+    #if StaticProcWaitEvtCnt > 4
+        #error "MAX wait evt Cnt is bigger then 4"
     #endif
 #endif 
 
@@ -831,8 +831,8 @@ typedef enum Signal_
 #define  TreeNode     2
 #define  LeafNode     3
 //#define  Nodetype     TreeNode
-#define Nodetype    LeafNode
-//#define Nodetype  RootNode  
+//#define Nodetype    LeafNode
+#define Nodetype  RootNode  
 
 #define MaxNodeLiveCnt       4           //max 15, a counter based on day   a node lived if it not connect with other's  .it will be sub 1 every day.
 #define MaxChildActivePeriod (24*(MaxNodeLiveCnt/2) -1)   //max 255 a counter based on hour   every ChildActivePeriod * FixHourCnt hours  the child is wakeup to send mac check undirect msg.

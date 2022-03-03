@@ -33,6 +33,9 @@ typedef enum LOGBYTE_
     log_test2,
     log_test3,
     log_test4,
+    log_ProcAdd ,
+    log_proccnt,
+    log_procres,
 }LogByte ;
 // logbyte  is a uint8_t var , max value is 255 ,not  bigger than it .
 

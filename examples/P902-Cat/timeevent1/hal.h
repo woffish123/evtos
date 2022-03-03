@@ -85,8 +85,8 @@ extern volatile uint32_t HalStatu;
 #define Hal_Statu_UartRcv     (0x1U  <<1)
 // uart0 is in send mode .DMA is used  not used
 #define Hal_Statu_LpUartSnd     (0x1U <<2)
-// ADC is running  DMA is used 
-#define Hal_Statu_ADC            (0x1U <<3)  
+// log buffer is not null
+#define Hal_Statu_Log       (0x1U <<3)  
 // hal1 detected magnet  
 #define Hal_Statu_Magnet1On     (0x1U <<4)
 // hal1 detected magnet  
@@ -256,7 +256,7 @@ uint8_t HardDiv(QuotRemain * value);
 void InitLpUart0(void);
 // enable the register  and pin to send  and will stop register when send over .
 void LpUart0Send(StdEvt evt);
-void ClearUart0Send(void);
+void ClearLpUart0SendBuffer(void);
 
 uint8_t  SendLog(uint8_t data) ;
 #if RCHF_CLOCK == RCC_RCHF_FREQUENCY_8MHZ

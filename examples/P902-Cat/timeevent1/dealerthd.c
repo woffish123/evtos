@@ -136,32 +136,32 @@ void CmdDealer_initial(LPThdBlock const lpb, StdEvt evt)
 // this function will do a test motor2. 
 // it control the motor2 loop from stop to forward speed up , then speed down, then backword speed up , then , brake, go to forward speed uo then  goto backward speed up.
 // start with Sig_Motor2_Test . end report  Sig_MotorProc1_Done
-uint8_t MotorProc0(StdEvt evt,LPLongProcData lpdata)
+uint8_t MotorProc0(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
 {
     ThdBegin(lpdata);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Test);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Test);
     // 初始化语句 ， 下列语句必须在正式开始前被系统进行一次调用以便达到正式等待的状态。
     lpdata->procdata.data32 = 1 ;
     // 初始化语句结束， 开始等待第一个状态， 这里是程序正式开始执行的部分， 在相应的信号到来时被执行。
 
     Start :    
     SetMotor(1,Motor_ForStable,20,6);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Done);
     SetMotor(1,Motor_ForStable,60,4);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Done);
     SetMotor(1,Motor_ForStable,100,2);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Done);
     SetMotor(1,Motor_BackStable,20,6);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Done);
     SetMotor(1,Motor_BackStable,60,4);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Done);
     SetMotor(1,Motor_BackStable,100,2);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Done);
     lpdata->procdata.data32 ++ ;
     if(lpdata->procdata.data32 < 20 )
         goto Start ;
     SetMotor(1,Motor_PowerOffBrake,0,0);
-    ThdWaitSig(lpdata,evt,Sig_Motor2_Done);    
+    ThdWaitSig(lpdata,dataindex,Sig_Motor2_Done);    
     // 结束整个调用过程，进行清理活动 。  
     postevt((LPThdBlock)(&cmddealer),Sig_MotorProc0_Done);    
     // 清理过程结束，系统恢复到未进行调用的初始状态， 再次使用前必须先进行一次调用，以便完成初始化。
@@ -172,32 +172,32 @@ uint8_t MotorProc0(StdEvt evt,LPLongProcData lpdata)
 // this function will do a test motor2. 
 // it control the motor2 loop from stop to forward speed up , then speed down, then backword speed up , then , brake, go to forward speed uo then  goto backward speed up.
 // start with Sig_Motor2_Test . end report  Sig_MotorProc1_Done
-uint8_t MotorProc1(StdEvt evt,LPLongProcData lpdata)
+uint8_t MotorProc1(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
 {
     ThdBegin(lpdata);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Test);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Test);
     // 初始化语句 ， 下列语句必须在正式开始前被系统进行一次调用以便达到正式等待的状态。
     lpdata->procdata.data32 = 1 ;
     // 初始化语句结束， 开始等待第一个状态， 这里是程序正式开始执行的部分， 在相应的信号到来时被执行。
 
     Start :    
     SetMotor(0,Motor_ForStable,20,6);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Done);
     SetMotor(0,Motor_ForStable,60,4);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Done);
     SetMotor(0,Motor_ForStable,100,2);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Done);
     SetMotor(0,Motor_BackStable,20,6);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Done);
     SetMotor(0,Motor_BackStable,60,4);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Done);
     SetMotor(0,Motor_BackStable,100,2);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Done);
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Done);
     lpdata->procdata.data32 ++ ;
     if(lpdata->procdata.data32 < 20 )
         goto Start ;
     SetMotor(0,Motor_PowerOffBrake,0,0);
-    ThdWaitSig(lpdata,evt,Sig_Motor1_Done);    
+    ThdWaitSig(lpdata,dataindex,Sig_Motor1_Done);    
     // 结束整个调用过程，进行清理活动 。  
     postevt((LPThdBlock)(&cmddealer),Sig_MotorProc1_Done);    
     // 清理过程结束，系统恢复到未进行调用的初始状态， 再次使用前必须先进行一次调用，以便完成初始化。
@@ -206,10 +206,10 @@ uint8_t MotorProc1(StdEvt evt,LPLongProcData lpdata)
 // check the magnet input , to do led shark and chang the hour,min ,sec value .
 // Mag 1, then  Mag2   shark led 4 times start adjust timer .
 //
-uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
+uint8_t  MagnetSetTimeProc(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
 {
     ThdBegin(lpdata);
-    ThdWaitSig(lpdata,evt,Sig_Magnet1_On);    
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet1_On);    
     // init time value .
     lpdata->procdata.data32 = 0xffffffff ;
 
@@ -220,7 +220,7 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
     SetSoftTimerEvt(lpdata->procdata.data8.data0, Sig_Magnet_OVTM);
     StartSoftTimer(lpdata->procdata.data8.data0);  
     // 等待 Magnet 2 触发
-    ThdWait1of2Sig(lpdata,evt,Sig_Magnet_OVTM,Sig_Magnet2_On);
+    ThdWait1of2Sig(lpdata,dataindex,Sig_Magnet_OVTM,Sig_Magnet2_On);
     if(CheckEvt(evt,Sig_Magnet_OVTM))
         goto StopOverTime ;
         
@@ -229,19 +229,19 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
     led1on();
     led2on();
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1off();
     led2off(); 
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2on();
 
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1off();
     led2off();    
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2off();
     // start the over time soft time.    
@@ -249,7 +249,7 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
 
     do
     {
-        ThdWait1of3Sig(lpdata,evt,Sig_Magnet_OVTM,Sig_Magnet1_On,Sig_Magnet2_On);
+        ThdWait1of3Sig(lpdata,dataindex,Sig_Magnet_OVTM,Sig_Magnet1_On,Sig_Magnet2_On);
         if(CheckEvt(evt,Sig_Magnet_OVTM))
             goto StopOverTime ;
         ResetSoftTimer(lpdata->procdata.data8.data0,RESTARTDELAY);
@@ -280,19 +280,19 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
     led1on();
     led2on();
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1off();
     led2off(); 
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2on();
 
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1off();
     led2off();
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2off();
     // start the over time soft time.    
@@ -300,7 +300,7 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
 
     do
     {
-        ThdWait1of3Sig(lpdata,evt,Sig_Magnet_OVTM,Sig_Magnet1_On,Sig_Magnet2_On);
+        ThdWait1of3Sig(lpdata,dataindex,Sig_Magnet_OVTM,Sig_Magnet1_On,Sig_Magnet2_On);
         if(CheckEvt(evt,Sig_Magnet_OVTM))
             goto StopOverTime ;
         ResetSoftTimer(lpdata->procdata.data8.data0,RESTARTDELAY);
@@ -327,19 +327,19 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
     led1on();
     led2on();
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1off();
     led2off(); 
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2on();
 
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1off();
     led2off();    
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2off();
     // start the over time soft time.    
@@ -347,7 +347,7 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
 
     do
     {
-        ThdWait1of3Sig(lpdata,evt,Sig_Magnet_OVTM,Sig_Magnet1_On,Sig_Magnet2_On);
+        ThdWait1of3Sig(lpdata,dataindex,Sig_Magnet_OVTM,Sig_Magnet1_On,Sig_Magnet2_On);
         if(CheckEvt(evt,Sig_Magnet_OVTM))
             goto StopOverTime ;
         ResetSoftTimer(lpdata->procdata.data8.data0,RESTARTDELAY);
@@ -392,23 +392,23 @@ uint8_t  MagnetSetTimeProc(StdEvt evt,LPLongProcData lpdata)
     led2on();
     
 
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2off(); 
     
 
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1off();
     led2on();
     
 
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     led1on();
     led2off();    
     
     // 清理过程结束，系统恢复到未进行调用的初始状态， 再次使用前必须先进行一次调用，以便完成初始化。
     
-    ThdWaitSig(lpdata,evt,Sig_Magnet_OVTM);
+    ThdWaitSig(lpdata,dataindex,Sig_Magnet_OVTM);
     
  StopOverTime :
     ReleaseSoftTimer(lpdata->procdata.data8.data0);   

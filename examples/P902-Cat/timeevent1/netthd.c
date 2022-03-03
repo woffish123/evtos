@@ -141,7 +141,7 @@ void    NetMaster_proc(LPThdBlock const lpb, StdEvt evt)
 #define  ProcSftIndex lpdata->procdata.data8.data1
 #define  ProcLcTemp1   lpdata->procdata.data8.data2
 #define  ProcLcTemp2   lpdata->procdata.data8.data3
-uint8_t RfRegisterProc (StdEvt evt,LPLongProcData lpdata)
+uint8_t RfRegisterProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
 {
     // Notice the local param is used only between two ThdWait block .
     uint16_t temp ;
@@ -159,7 +159,7 @@ uint8_t RfRegisterProc (StdEvt evt,LPLongProcData lpdata)
         // delay 10ms . allow the lora power up  .
         SetSoftTimerDelayMs(ProcSftIndex,10); 
         StartSoftTimer(ProcSftIndex);  
-        ThdWaitSig(lpdata,evt,Sig_Rf_Rgst_Delay);
+        ThdWaitSig(lpdata,dataindex,Sig_Rf_Rgst_Delay);
         // do rf initial .
         LoraInit();
         outlog(log_rf_coldup);  
@@ -192,11 +192,11 @@ StartSendBoradcast:
     SendRfMsgDirect(evt,globaldata.cfgdata.LocalAddr) ;
 
     // start a wait timer for 4s to get the node reply .    
-    SetSoftTimerDelayMs(ProcSftIndex,Rgst_Delay_Base * ProcLoopCnt); 
+    SetSoftTimerDelayMs(ProcSftIndex,Rgst_Delay_Base * (Max_Rgst_Cnt +1 -ProcLoopCnt)); 
     StartSoftTimer(ProcSftIndex);  
      
   
-    ThdWaitSig(lpdata,evt,Sig_Rf_Rgst_Delay);
+    ThdWaitSig(lpdata,dataindex,Sig_Rf_Rgst_Delay);
    
     ProcLcTemp1 = 0xff ;
     // check if we find broad cast msg . the NearTreeNode1/2 will be set .
@@ -254,7 +254,7 @@ StartCheckOldInfor:
     SetSoftTimerDelayMs(ProcSftIndex,2000); 
     StartSoftTimer(ProcSftIndex);      
     
-    ThdWait1of2Sig(lpdata,evt,Sig_Rf_Rgst_Delay,Sig_Rf_Register_OK);
+    ThdWait1of2Sig(lpdata,dataindex,Sig_Rf_Rgst_Delay,Sig_Rf_Register_OK);
     if(CheckEvt(evt,Sig_Rf_Rgst_Delay))
     { // faild ,retry
         outlog(log_rf_jionfail);
@@ -286,7 +286,7 @@ StartSendGetTime:
     SetSoftTimerDelayMs(ProcSftIndex,1500); 
     StartSoftTimer(ProcSftIndex);  
     
-    ThdWait1of2Sig(lpdata,evt,Sig_Rf_Rgst_Delay,Sig_Rf_GetTime_OK);
+    ThdWait1of2Sig(lpdata,dataindex,Sig_Rf_Rgst_Delay,Sig_Rf_GetTime_OK);
     if(CheckEvt(evt,Sig_Rf_Rgst_Delay))
     { // faild ,retry
         ProcLoopCnt -- ;
@@ -313,7 +313,7 @@ StopRegister:
     ThdEnd(lpdata);    
 }
 // send maccmd_checkundirect to get undirect msg .
-uint8_t RfCheckUndirectMsgProc (StdEvt evt,LPLongProcData lpdata)
+uint8_t RfCheckUndirectMsgProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
 {
     // Notice the local param is used only between two ThdWait block .
     uint16_t temp ;
@@ -334,7 +334,7 @@ uint8_t RfCheckUndirectMsgProc (StdEvt evt,LPLongProcData lpdata)
         // delay 10ms . allow the lora power up  .
         SetSoftTimerDelayMs(ProcSftIndex,10); 
         StartSoftTimer(ProcSftIndex);  
-        ThdWaitSig(lpdata,evt,Sig_Rf_Rgst_Delay);
+        ThdWaitSig(lpdata,dataindex,Sig_Rf_Rgst_Delay);
         // do rf initial .
         LoraInit();
     }
@@ -357,7 +357,7 @@ StartCheckUndirect:
     SetSoftTimerDelayMs(ProcSftIndex,1500); 
     StartSoftTimer(ProcSftIndex);  
   
-    ThdWait1of2Sig(lpdata,evt,Sig_Rf_Rgst_Delay,Sig_Rf_CheckUndirect_OK);
+    ThdWait1of2Sig(lpdata,dataindex,Sig_Rf_Rgst_Delay,Sig_Rf_CheckUndirect_OK);
     if(CheckEvt(evt,Sig_Rf_Rgst_Delay))
     { // faild ,retry
         ProcLoopCnt -- ;
@@ -381,7 +381,7 @@ StopProc :
 }
 
 // Open the RF £¬ Send Sig_Get_Time event ,try to get time  . continue for about 3 times , inter time is 10s .
-uint8_t  RfGetRtcTime(StdEvt evt,LPLongProcData lpdata)
+uint8_t  RfGetRtcTime(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
 {
     uint16_t temp ;
     LPFrameCtrl lpbuf ; // Notice the local param is used only between two ThdWait block .
@@ -403,7 +403,7 @@ uint8_t  RfGetRtcTime(StdEvt evt,LPLongProcData lpdata)
         SetSoftTimerDelayMs(ProcSftIndex,10);
         StartSoftTimer(ProcSftIndex);  
     
-        ThdWaitSig(lpdata,evt,Sig_Rf_Rgst_Delay);
+        ThdWaitSig(lpdata,dataindex,Sig_Rf_Rgst_Delay);
         // do initial .
         LoraInit();
     }
@@ -427,7 +427,7 @@ StartGetRtcTime:
     // delay 1.5s .
     SetSoftTimerDelayMs(ProcSftIndex,1500); //
     StartSoftTimer(ProcSftIndex);  
-    ThdWait1of2Sig(lpdata,evt,Sig_Rf_Rgst_Delay,Sig_Rf_GetTime_OK);
+    ThdWait1of2Sig(lpdata,dataindex,Sig_Rf_Rgst_Delay,Sig_Rf_GetTime_OK);
     if(CheckEvt(evt,Sig_Rf_Rgst_Delay))
     { // faild ,retry
         ProcLoopCnt -- ;

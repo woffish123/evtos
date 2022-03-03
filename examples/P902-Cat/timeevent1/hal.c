@@ -1034,6 +1034,7 @@ void InitLpUart0(void)
    
     //start recv
     ClrHalStatu(Hal_Statu_LpUartSnd);
+    ClrHalStatu(Hal_Statu_Log); 
     cmdport.lplpuartrecv = NULL ;
     LPUART_EnabledRx(LPUART0);
     
@@ -1096,13 +1097,11 @@ void LPUART0_IRQHandler(void)
 	if((res & LPUART_IER_TXSE_IE_Msk) &&(LPUART0->IER & LPUART_IER_TXSE_IE))
 	{
 #if _ASSERT  == 1
-        evt = (StdEvt) getlog();
-        if(evt)
+        if( CheckHalStatu(Hal_Statu_Log) )
         {
                 // no event is sendding
-            LPUART0->TXBUF = (uint8_t)evt ;
+            LPUART0->TXBUF = getlog();
         }
- 
         else
 #endif        
 		{
@@ -1171,7 +1170,7 @@ void LpUart0Send(StdEvt evt)
     LPUART_EnabledIT_TXBE(LPUART0);
     LPUART_EnabledTx(LPUART0); 
 }
-void ClearUart0Send(void)
+void ClearLpUart0SendBuffer(void)
 {
     ResetQueue(&LpUartSendQueue);
 }

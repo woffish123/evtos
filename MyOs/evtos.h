@@ -51,9 +51,7 @@ typedef struct LongProcData_
     uint8_t  state8 ; // for the long proc used to deal multiple Signal wait .  Inter Used
     uint16_t state16; // for the long proc used to as the jump address.  Inter Used
     Var32    procdata; // hold the local temp data .  User Use。
-#if StaticProcModeQuick == 1 
-    uint16_t evtarray[StaticProcWaitEvtCnt] ;
-#endif    
+    
 }LongProcData, * LPLongProcData;
 
 
@@ -61,88 +59,93 @@ typedef struct LongProcData_
 
 #if  StaticProcModeQuick == 1   
 // help function for static proc mode 
-// use the state8  store the event id , the event is stored in evtarray index is id 
-    #define ThdWaitSig(lpdata,evt,sig)	        \
+// insert a new evt to static proc m after id
+// input  : dataindex : lpdata index , sig : the sig waiting for . 
+// Notice  : the sig will be add at reverse order . 
+void  addprocsig(uint8_t dataindex,uint16_t sig) ;
+
+// use the state8  store the event wait cnt , the event is stored in evtarray .
+    #define ThdWaitSig(lpdata,index,sig)	        \
       do {						\
              (lpdata)->state8 = 1 ;                     \
-             (lpdata)->evtarray[0] = sig ;               \
+             addprocsig(index,sig) ;               \
              LC_RETSET((lpdata)->state16);				\
          } while(0)
 
-    #define ThdWait1of2Sig(lpdata,evt,sig1,sig2)	        \
+    #define ThdWait1of2Sig(lpdata,index,sig1,sig2)	        \
       do {						\
              lpdata->state8 = 1 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16);				\
          } while(0)     
          
-    #define ThdWait1of3Sig(lpdata,evt,sig1,sig2,sig3)	        \
+    #define ThdWait1of3Sig(lpdata,index,sig1,sig2,sig3)	        \
       do {						\
              lpdata->state8 = 1 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
+             addprocsig(index,sig3) ;               \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16);				\
          } while(0)         
 
-    #define ThdWait1of4Sig(lpdata,evt,sig1,sig2,sig3,sig4)	        \
+    #define ThdWait1of4Sig(lpdata,index,sig1,sig2,sig3,sig4)	        \
       do {						\
              lpdata->state8 = 1 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
+             addprocsig(index,sig4) ;               \
+             addprocsig(index,sig3) ;               \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16)	;			\
          } while(0)    
 
-     #define ThdWait1of5Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5)	        \
+     #define ThdWait1of5Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5)	        \
       do {						\
              lpdata->state8 = 1 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
+             addprocsig(index,sig5) ;             \
+             addprocsig(index,sig4) ;               \
+             addprocsig(index,sig3) ;             \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16)	;			\
          } while(0)   
 
-     #define ThdWait1of6Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5,sig6)	        \
+     #define ThdWait1of6Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5,sig6)	        \
       do {						\
              lpdata->state8 = 1 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
-             (lpdata)->evtarray[5] = sig6;               \
+             addprocsig(index,sig6) ;               \
+             addprocsig(index,sig5) ;            \
+             addprocsig(index,sig4) ;              \
+             addprocsig(index,sig3) ;              \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16)	;			\
          } while(0)   
 
-     #define ThdWait1of7Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5,sig6,sig7)	        \
+     #define ThdWait1of7Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5,sig6,sig7)	        \
       do {						\
              lpdata->state8 = 1 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
-             (lpdata)->evtarray[5] = sig6;               \
-             (lpdata)->evtarray[6] = sig7;               \
+             addprocsig(index,sig7) ;              \
+             addprocsig(index,sig6) ;               \
+             addprocsig(index,sig5) ;               \
+             addprocsig(index,sig4) ;              \
+             addprocsig(index,sig3) ;               \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16)	;			\
          } while(0)   
 
-      #define ThdWait1of8Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5,sig6,sig7,sig8)	        \
+      #define ThdWait1of8Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5,sig6,sig7,sig8)	        \
       do {						\
              lpdata->state8 = 1 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
-             (lpdata)->evtarray[5] = sig6;               \
-             (lpdata)->evtarray[6] = sig7;               \
-             (lpdata)->evtarray[7] = sig8;               \
+             addprocsig(index,sig8) ;              \
+             addprocsig(index,sig7) ;              \
+             addprocsig(index,sig6) ;               \
+             addprocsig(index,sig5) ;               \
+             addprocsig(index,sig4) ;              \
+             addprocsig(index,sig3) ;               \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16);				\
          } while(0)   
         
@@ -150,80 +153,80 @@ typedef struct LongProcData_
     // 因此 所等待的事情 必须为简单事件， 不能包含内存块，否则 这些内存块 没有被释放会产生内存泄漏 。     
     // 例如需要等待 Sig1 和Sig2  同时 ， 则需要设计为 ThdWaitAll2Sig(lpb,sig1 ,Sig2)   
       
-    #define ThdWaitAll2Sig(lpdata,evt,sig1,sig2)	        \
+    #define ThdWaitAll2Sig(lpdata,index,sig1,sig2)	        \
       do {						\
              lpdata->state8 = 2 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
+             addprocsig(index,sig1) ;                \
+             addprocsig(index,sig2) ;                \
              LC_RETSET(lpdata->state16);				\
          } while(0)     
          
-    #define ThdWaitAll3Sig(lpdata,evt,sig1,sig2,sig3)	        \
+    #define ThdWaitAll3Sig(lpdata,index,sig1,sig2,sig3)	        \
       do {						\
              lpdata->state8 = 3 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
+             addprocsig(index,sig3) ;                \
+             addprocsig(index,sig2) ;                \
+             addprocsig(index,sig1) ;                \
              LC_RETSET(lpdata->state16);				\
          } while(0)         
 
-    #define ThdWaitAll4Sig(lpdata,evt,sig1,sig2,sig3,sig4)	        \
+    #define ThdWaitAll4Sig(lpdata,index,sig1,sig2,sig3,sig4)	        \
       do {						\
              lpdata->state8 = 4 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
+             addprocsig(index,sig4) ;                \
+             addprocsig(index,sig3) ;                \
+             addprocsig(index,sig2) ;                \
+             addprocsig(index,sig1) ;                \
              LC_RETSET(lpdata->state16);				\
          } while(0)    
 
-     #define ThdWaitAll5Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5)	        \
+     #define ThdWaitAll5Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5)	        \
       do {						\
              lpdata->state8 = 5 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
+             addprocsig(index,sig5) ;             \
+             addprocsig(index,sig4) ;                \
+             addprocsig(index,sig3) ;              \
+             addprocsig(index,sig2) ;               \
+             addprocsig(index,sig1) ;                \
              LC_RETSET(lpdata->state16);				\
          } while(0)   
 
-     #define ThdWaitAll6Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5,sig6)	        \
+     #define ThdWaitAll6Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5,sig6)	        \
       do {						\
              lpdata->state8 = 6 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
-             (lpdata)->evtarray[5] = sig6;               \
+             addprocsig(index,sig6) ;                \
+             addprocsig(index,sig5) ;           \
+             addprocsig(index,sig4) ;             \
+             addprocsig(index,sig3) ;             \
+             addprocsig(index,sig2) ;             \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16);				\
          } while(0)   
 
-     #define ThdWaitAll7Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5,sig6,sig7)	        \
+     #define ThdWaitAll7Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5,sig6,sig7)	        \
       do {						\
              lpdata->state8 = 7 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
-             (lpdata)->evtarray[5] = sig6;               \
-             (lpdata)->evtarray[6] = sig7;               \
+             addprocsig(index,sig7) ;                \
+             addprocsig(index,sig6) ;               \
+             addprocsig(index,sig5) ;              \
+             addprocsig(index,sig4) ;               \
+             addprocsig(index,sig3) ;               \
+             addprocsig(index,sig2) ;              \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16);				\
          } while(0)   
 
-      #define ThdWaitAll8Sig(lpdata,evt,sig1,sig2,sig3,sig4,sig5,sig6,sig7,sig8)	        \
+      #define ThdWaitAll8Sig(lpdata,index,sig1,sig2,sig3,sig4,sig5,sig6,sig7,sig8)	        \
       do {						\
              lpdata->state8 = 8 ;                       \
-             (lpdata)->evtarray[0] = sig1;               \
-             (lpdata)->evtarray[1] = sig2;               \
-             (lpdata)->evtarray[2] = sig3;               \
-             (lpdata)->evtarray[3] = sig4;               \
-             (lpdata)->evtarray[4] = sig5;               \
-             (lpdata)->evtarray[5] = sig6;               \
-             (lpdata)->evtarray[6] = sig7;               \
-             (lpdata)->evtarray[7] = sig8;               \
+             addprocsig(index,sig8) ;              \
+             addprocsig(index,sig7) ;               \
+             addprocsig(index,sig6) ;               \
+             addprocsig(index,sig5) ;              \
+             addprocsig(index,sig4) ;              \
+             addprocsig(index,sig3) ;               \
+             addprocsig(index,sig2) ;                \
+             addprocsig(index,sig1) ;               \
              LC_RETSET(lpdata->state16);				\
          } while(0)         
          
@@ -465,7 +468,7 @@ typedef struct  ThdBlock_  * LPThdBlock ;
 // define the LongProc function pointer  
 // return 1 means the event has been done .  
 // if current func is  activeproc and return 0  than call the default proc .
-typedef uint8_t  (* LPLongProc)(StdEvt evt,LPLongProcData lpdata) ; // 32bit.
+typedef uint8_t  (* LPLongProc)(StdEvt evt,uint8_t dataindex ,LPLongProcData lpdata) ; // 32bit.
 // define the default event deal function , normally all event will be deal at this function .
 typedef void  (* LPInitFuc)(LPThdBlock lpblock,StdEvt evt) ; 
 
