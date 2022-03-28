@@ -19,7 +19,7 @@ typedef enum LOGBYTE_
     log_rtc_int,
     log_rf_coldup,
     log_rf_recv_data,
-    log_rf_register,
+    log_net_register,
     log_rf_regist_no_reply,
     log_rf_jioning,
     log_rf_jionfail,

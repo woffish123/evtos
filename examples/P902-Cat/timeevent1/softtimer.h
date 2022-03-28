@@ -84,7 +84,7 @@ LPSoftTimer  GetSoftTimerData(uint8_t index);
 // enable a special softtimer . it should be call after setting the delay, repeat_opt ,evt , block .
 void StartSoftTimer(uint8_t index);
 // interrupt a special running softtimer.   but not put it to free list if it opt has SftOpt_Lock
-void StopSoftTimer(uint8_t index);
+uint8_t StopSoftTimer(uint8_t index);
 
 
 // interrupt a special running softtimer.   

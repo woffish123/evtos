@@ -126,7 +126,7 @@ void CmdPort_initial(LPThdBlock const lpb, StdEvt evt)
             AddActiveProcById(BlcId_Net ,RfGetRtcTimeId); 
             break;
         } 
-        case Sig_GetRfMode :
+        case Sig_GetNetMode :
         {
             lprecvbuf[0] = 'R' ;
             lprecvbuf[1] = 'F' ;
@@ -135,7 +135,7 @@ void CmdPort_initial(LPThdBlock const lpb, StdEvt evt)
             lprecvbuf[4] = 'o' ;
             lprecvbuf[5] = 'd' ;
             lprecvbuf[6] = ':' ;
-            lprecvbuf[7] = '0'  + GetRfMode();
+            lprecvbuf[7] = '0'  + GetNetMode();
             GetDevState(&lprecvbuf[8]);
  
             break;

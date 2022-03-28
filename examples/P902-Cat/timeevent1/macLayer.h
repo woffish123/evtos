@@ -2,6 +2,7 @@
 #define __mac_layer_H 
 
 #include "basictype.h"
+#include "evtos.h"
 // define a init value to flash data  .  in flash the value should be fixed as it
 #define FlashValue  0xcdcd    // if the Mark is this means the cfginformation is just read from flash
 #define RamValue    0xdcdc    // if the Mark is this means the cfginformation is changed by app. it's valid data.
@@ -32,10 +33,10 @@ typedef  struct _CfgInformation_
     
     // uint32_t  4
     uint32_t LeafBitmapH ;  // for tree node to mark the assigned leaf node 1-31 , bit 0 is not used
-                           // a LeafNodeLiveCnt connect with this 
+                            // a LeafNodeLiveCnt connect with this 
     // uint32_t  5
     uint32_t LeafBitmapL ;  // for tree node to mark the assigned leaf node 32-62 , bit 31 is not used
-                           // a LeafNodeLiveCnt connect with this 
+                            // a LeafNodeLiveCnt connect with this 
     // uint32_t  6 
     uint16_t LocalAddr ;     // for tree node addr .
     uint16_t Mark;           // no used to mark if the struct is valid ,
@@ -61,13 +62,23 @@ typedef  struct _CfgInformation_
 
 } CfgInformation ,* LPCfgInformation ;  
 
-
-void  SubChildLiveCnt(void) ;
+// sub leaf live cnt
+#if Nodetype != LeafNode
+void  ResetLeafLiveCnt(uint8_t index);
+void  ResetTreeLiveCnt(uint8_t index);
+void  SubChildNodeLiveCnt(void);
+#endif
+#if Nodetype != RootNode
 // sub father live cnt , return 1 ,if father live cnt is not 0 ,else return 0 
-uint8_t  SubFatherLiveCnt(void) ;
+void  SubFatherLiveCnt(void) ;
+void  ResetFatherLiveCnt(void);
+#endif
+
 // sub active cnt ,if it return 1 -> active period is overtimed.
-uint8_t SubLocalLiveCnt(void);
+uint8_t SubActiveCnt(void);
 void ResetActiveCnt(void) ;    
+
+
 // the net is a tree - leaf net .    tree node connect each other to make a net . and the leaf node connected with tree node only
 // there is also a specail node . it is the root node , all msg should be send to root node . 
 // tree node  addr  is only TreeAddrMask bits used is must start from 1. the LeafAddrMask is fixed as 0
@@ -89,11 +100,11 @@ void ResetActiveCnt(void) ;
 
 #define  RootAddr   0xffff
 #define  RootCfg    0x0A 
-#define  NetDividor 2     //every net has 3 subber child .
+#define  NetDividor 2         //every net has 3 subber child tree node .
 #define  NetMask    0x03     
-#define  LeafBitCnt  6
-#define  OrphanTreeAddr          0x97bf    // default value when start .  this is  a tree  addr never used .
-#define  OrphanLeafAddr          0x9770    // default value when start .  this is  a leaf  addr never used .
+#define  LeafBitCnt  6        //every net has 63 leaf node
+#define  OrphanTreeAddr          0x97bf    // default value when start .  this is  a tree  addr that never used .
+#define  OrphanLeafAddr          0x9770    // default value when start .  this is  a leaf  addr that never used .
 
 
 
@@ -154,13 +165,13 @@ __STATIC_INLINE uint8_t IsOrphanNode(uint16_t addr)
 }
 #endif
 
+// BIT 0- 7 is the mem id ,from the sender . it 's valid when AuxAckMask is set,
 
+// BIT8 - Bit11    is used for Mac layer ,: if FrameBit & MacMsgMask != 0  -> this is a mac msg .
+#define  MacMsgMask       (BIT8|BIT9|BIT10|BIT11)   // the leaf node look for the tree node  to jion the net,
 
-// BIT0 - Bit2 is used for Mac layer ,: if FrameBit & MacMsgMask != 0  -> this is a mac msg .
-#define  MacMsgMask       (BIT0|BIT1|BIT2|BIT3)   // the leaf node look for the tree node  to jion the net,
-
-#define  DirectionMask    BIT4   // 1: up the msg is Send to root ,0 : Down the msg is send from root.
-#define  AuxAckMask       BIT5   // the sender waiting a ack msg . and there also a undirect msg to it . the undirect msg also means a ack.
+#define  DirectionMask    BIT12   // 1: up the msg is Send to root ,0 : Down the msg is send from root.
+#define  AuxAckMask       BIT13   // the sender waiting a ack msg . and there also a online msg to it . the online msg also means a ack.
 
 
 typedef enum MacMsgType_
@@ -171,30 +182,35 @@ typedef enum MacMsgType_
     maccmd_join ,      // orphan tree/leaf ask jion tree node . addr must be LeafAddrMask.
     maccmd_ack   ,     // this is a ack . 
     maccmd_time ,      // ask to ge time. 
-    maccmd_checkundirect ,  // send by child ,check if there is a undirect msg waiting to send 
+    maccmd_checkoffline ,  // send by child ,check if there is a online msg offlineing to send 
     
 }MacMsgType ;
 #define GetMacCmd(framebit) ((uint8_t) ((framebit)&MacMsgMask))
 #define IsMacMsg(framebit) (((framebit)& MacMsgMask) !=0)
 
+// mark msg is send from father node to child node .
 #define IsDownMsg(framebit)(((framebit)&DirectionMask)==0)
 #define SetUpMsg(framebit) (framebit)|=DirectionMask 
 #define SetDownMsg(framebit) (framebit)&=(~DirectionMask) 
 
+// mark this msg is also a ack msg for lastest sended msg .   it means  1 : the lastest msg send has received . 2 there is a new msg come .
+// when it set the lower byte of framebit is the memid of the last sended msg .
 #define IsAuxAckMsg(framebit) (((framebit)&AuxAckMask)==AuxAckMask)
 #define SetAuxAckMsg(framebit) (framebit)|=AuxAckMask
+#define GetAuxAckMemId(framebit) ((uint8_t)framebit)
+#define SetAuxAckMemId(framebit,id) (framebit) &= 0xff00 ,(framebit) |= id
 
 // the start struct of the rf msg .  this struct is used mainly at mac layer.
 // TryCnt must at 0 offset ,and MsgCnt must at 1offset . 
-// the WriteFifo and getwaitevt  used absolute address of this .
+// the WriteFifo and getofflineevt  used absolute address of this .
 // total 12 byte used .
 
 //TryCnt and MsgCnt is used inter , not be sendout 
-#define MsgOffset    2 
+#define MsgOffset    1 
 typedef struct FrameCtrl_   
 {
-    uint8_t  TryCnt  ;     // a inter counter used to give a must Send times for a msg , the msg would be disacard if SendCnt ==0 autoset .
     uint8_t  MsgCnt   ;    // the msg length , not include the SendCnt and MsgCnt .
+    uint8_t  MsgId    ;    // a inter counter used to give a id for Send a msg , the return ack msg would has same id  to notify which cmd received . it 's used for data msg only.
     uint16_t NetName  ;    // mark the net . fixed. stored in    autoset .
     uint16_t NetId    ;    // mark the real Id of the node ;
     uint16_t SendAddr ;    // the local addr the msg is send from .     autoset .
@@ -261,13 +277,7 @@ typedef struct BroadcastMsg_
 
 //Mac is drived by Rf Interrupt .  the data and inter function is defined here 
 // max rf msg  mac can hold  , for safe use cnt based 4 byte. it should small then the PoolRF_Cnt
-#define  Max_RfLayerMem     100
-// min Cad times between RF send .   
-#define  Max_Delay          6 
-// max msg been send times   
-#define  Max_Send           20 
-// endless monitor  mode 
-#define  INFINITE_CAD      0xffff
+#define  Max_RfLayerMem     PoolRF_Cnt
 
 // max register delay cnt   when register the node will set delay time as n*4 seconds max delay time is  Max_RegisterCnt*4 second
 #define  Max_RegisterCnt   0x50
@@ -275,38 +285,70 @@ typedef struct BroadcastMsg_
 // max RTC free running day cnt   when it reached , update rtc time by rf .
 #define  Max_RtcFreeCnt    0x10
 
-typedef enum RFMODE_
+typedef enum NetMODE_
+{
+    net_init = 0 ,    // rf just init . 
+    net_register ,   // rf is trying to jion to the net .
+    net_gettime ,    // node has geted time , it trying to get rtc time .
+    net_monitor ,    // node has finished  jion to net  , it's try to  send or recv msg
+    net_idle,        // node has finished  jion to net  , it's in sleep mode ,stop recv or send msg .
+}NetMode ;
+
+typedef enum RfMODE_
 {
     rf_init = 0 ,    // rf just init . 
-    rf_register ,   // rf is trying to 
-    rf_gettime ,    // node has geted time , it trying to get rtc time .
-    rf_monitor ,    // node has finished  jion to net  , it's try to  send or recv msg
-    rf_idle,        // node has finished  jion to net  , it's in sleep mode ,stop recv or send msg .
+    rf_cad_detect ,   // rf is trying to start work.
+    rf_tx_snd ,    // node has geted time , it trying to get rtc time .
+    rf_rx_dc ,    // node has finished  jion to net  , it's try to  send or recv msg
+    rf_tx_rcv,        // node has finished  jion to net  , it's in sleep mode ,stop recv or send msg .
 }RfMode ;
 
+// memarray is the all usable rf buffer , it's count is PoolRF_Cnt , length if PoolRF_Size *4 
+typedef  struct RfValue_
+{
+    uint8_t  nextid ; // store the index of next item .
+    uint8_t  memid   ;   // store the index  in memarray
+    uint16_t addr ;   // store the msg send to addr     
+} RfValue;
+
+typedef union RfMsg_
+{
+    RfValue value;
+    Var32   var ;
+}RfMsg ;
+
+// msg in online is use for tree node and Root node conminicate , will try to send MsgMaxSendCnt times , if no ack received , discard it , and post a  Sig_Rf_Overtime event to net layer .
+// if received a  ack , this msg will be take out from online list .
+// msg that need to send to leaf node , should be put in offline list , offline the leaf send msg to local , than local can send msg in offline list to it .
+
+#define MsgMaxSendCnt   4      // max send times for online msg .
+#define MsgMaxWaitCnt   48     // max wait hours 
+// RfLayerData hold the all rf buffer , and three msg list
+// 1 : the recv send msg list ,    it is used as mac msg , don't need to wait the replay .
+// 2 : the online send msg list ,  it is used as data msg , it need to check ack msg should be received from pear to make sure it's received by pear 
+// 3 : the offline list , it is the the offline send msg(for leaf node) , that has been received by pear , and the pear should return a return msg
 typedef struct RfLayerData_
 {
     // total RF buffer pool
     uint32_t memarray[PoolRF_Cnt*PoolRF_Size];
-   
-    // the  RF buffer queue , for directsendqueue, undirectsendqueue,and waitreplyqueue used
-    uint8_t  rflayerbuf[Max_RfLayerMem];
-    // the  common RF buffer address .
-    uint16_t rflayeraddr[Max_RfLayerMem];
+    // total local msg .
+    RfMsg   msglist[Max_RfLayerMem] ;
+    uint8_t msglivecnt[Max_RfLayerMem];
     
-    uint8_t  nextid[Max_RfLayerMem]; 
+    volatile uint8_t  memfree;   // hold the first free item id in memarray    
+    volatile uint8_t  freeheader ;   // hold first  unused item 
+    volatile uint8_t  recvheader ; // hold first  recv item in recv send list
+    volatile uint8_t  onlineheader ; // hold first online item in online send list
     
-    uint16_t cadcnt     ;    // max cad cnt , give a limited rf work period .    
-    RfMode   rfmode  ;    // hold the RfMode.
-    uint8_t  delaycnt   ;    // the try cad cnt between two rf send . to limit send to quickly .    
-    
-    volatile uint8_t  freeheader ;   // hold the unused item buf
-    volatile uint8_t  directheader ; // hold the directsendqueue
-    volatile uint8_t  undirectheader ; // hold undirectsendqueue
-    volatile uint8_t  waitheader ;    // hold waitreplyqueue
-    
-	volatile uint8_t  idfree;   // hold the first free item id in memarray
-	volatile uint8_t  freecnt;  // hold the free item cnt of memarray .
+    volatile uint8_t  offlineheader ;    // hold first Wait Ack item in Wait Ack list
+    // when send msg , it will try to send item in loop mode . give all msg fair send time ,to avoid a msg 's dead recver block send and receiv 
+    volatile uint8_t  onlinecur ; // hold cur online item in online send list
+    volatile uint8_t  onlineender ; // hold last online item in online send list   
+    volatile uint8_t  recvender ; // hold last recv item in online send list   
+
+
+	volatile RfMode   rfmode ;  // hold the lower hardware work mode .
+    volatile NetMode  netmode  ;    // hold the Net Mode.
     uint8_t  rtcfreeday;        // hold the rtc running day count from last time get rtc from rf.
     // hold the rf param here .  used when
 } RfLayerData ;
@@ -315,66 +357,93 @@ extern  RfLayerData rflayerdata ;
 
 uint8_t CheckRtcFreeDay(void)  ;
 
+__STATIC_INLINE RfMsg getrfmsg(uint8_t rfvalueid)  
+{
+    assert(rfvalueid != InvalidId);
+    return rflayerdata.msglist[rfvalueid];
+}
+
+
+
 __STATIC_INLINE void resetrtcfreeday()  
 {
     rflayerdata.rtcfreeday = 0; 
 }
 
 
-__STATIC_INLINE RfMode GetRfMode()  
+__STATIC_INLINE NetMode GetNetMode()  
 {
-    return rflayerdata.rfmode; 
+    return rflayerdata.netmode; 
 }
 
-// on stop hardware , chang rfmode .
+// on stop hardware , chang netmode .
 __STATIC_INLINE void OnStopRf()  
 {
-    if(rflayerdata.rfmode == rf_monitor)
-        rflayerdata.rfmode = rf_idle ;
+    rflayerdata.rfmode = rf_init ;
+    if(rflayerdata.netmode == net_monitor)
+        rflayerdata.netmode = net_idle ;
 }
-// on start hardware , chang rfmode .
+// on start hardware , chang netmode .
 __STATIC_INLINE void OnStartRf()  
 {
-    if(rflayerdata.rfmode == rf_idle)
-        rflayerdata.rfmode = rf_monitor ;
+    rflayerdata.rfmode = rf_init ;
+    if(rflayerdata.netmode == net_idle)
+        rflayerdata.netmode = net_monitor ;
 }
 // detect if the hardware is running .
 __STATIC_INLINE uint8_t IsRfStop()  
 {
-    return (rflayerdata.rfmode == rf_idle) ? 0: 1;
+    return (rflayerdata.rfmode == rf_init) ? 1: 0;
 }
-// add a msg at direct ender .
-void  setdirectmsg(uint8_t id ,uint16_t addr);
-// get a msg from direct queue header. and remove it .
-Var32 getdirectmsg(void) ;
-// find a special receiver addr at direct queue . just return id 
-// notice the addr is stored at addr position . 
-uint8_t finddirectaddr(uint16_t addr);
-
-// find a spacial receiver addr at direct queue . remove and return evt if find . else  return NULL
-// notice the addr is stored at evt sig position . getevtid(evt) == addr
-Var32 rmdirectaddr(uint16_t addr);
 
 
-void  setundirectmsg(uint8_t id, uint16_t addr) ;
-Var32 getundirectmsg(void);
-uint8_t findundirectaddr(uint16_t addr);
-Var32 rmundirectaddr(uint16_t addr);
+// add a msg at recv ender .  return 1 if there is only one item in recv list .
+uint8_t  addrecvmsg(uint8_t id ,uint16_t addr);
+// add a msg at recv header . used for msg from leaf . return 1, if there is only one item in recv list .
+uint8_t  insertrecvmsg(uint8_t id ,uint16_t addr);
+// get a msg from recv queue header. and remove it from list .
+RfMsg rmrecvmsg(void) ;
 
-// insert a msg to wait queue . at end.
-void  setwaitmsg(uint8_t id ,uint16_t addr);
-// get a msg from wait queue header ,  if the TryCnt ==1 . remove it  else  just return .
-Var32 getwaitmsg(void);
-uint8_t findwaitaddr(uint16_t addr);
-Var32 rmwaitaddr(uint16_t addr);
-__STATIC_INLINE uint8_t iswaitempty(void)
+// find a special receiver addr at recv queue . just return id 
+RfMsg findrecvaddr(uint16_t addr);
+// remove all msg in recv list , it's arm addr is specail .
+void rmrecvaddr(uint16_t addr);
+
+
+// put a new msg (root or tree node send msg to each other) .
+void  addonlinemsg(uint8_t id, uint16_t addr) ;
+// get a msg , this will sub the live cnt of the msg . if live cnt == 0 , it create  Sig_Rf_Overtime with msg id send to net layer .
+RfMsg getonlinemsg(void);
+// find first msg with special addr, return msgid ,  sub live cnt by 1 , if live cnt is 0 remove it from online list .
+RfMsg findonlineaddr(uint16_t addr);
+// remove all msg with special addr 
+void rmonlineaddr(uint16_t addr);
+// remove msg index is specail .
+RfMsg rmonlineid(uint8_t bufid);
+
+
+
+// insert a msg to offline queue . 
+void  addofflinemsg(uint8_t id ,uint16_t addr);
+// get a msg from offline queue header ,  it's id is specail  will remove it .
+RfMsg rmofflineid(uint8_t bufid);
+
+// remove all msg with specail addr .
+void rmofflineaddr(uint16_t addr);
+// get first msg in offline list . and sub it's live cnt by 1
+RfMsg getofflineaddr(uint16_t addr);
+// sub all live cnt by 1 , and remove the msg it's live cnt = 0 , the msg will be post to net layer .
+void subofflinemsglivecnt(void);
+
+
+__STATIC_INLINE uint8_t isofflineempty(void)
 {
-    return rflayerdata.waitheader == InvalidId ? 1 :0 ;
+    return rflayerdata.offlineheader == InvalidId ? 1 :0 ;
 }
 
 
 // get a rf buffer , it try to get a new buffer from poolrf :  newevt(addr,PoolId2)
-// if there is no buffer , it discard the last item in undirect queue or wait queue 
+// if there is no buffer , it discard the last item in online queue or offline queue 
 uint8_t  newrfbuf(uint16_t addr); 
 void     freerfbuf(uint8_t memid);
 __STATIC_INLINE uint32_t * getrfbuf(uint8_t memid)
@@ -396,10 +465,15 @@ void  MacRecvProc(uint8_t msg) ;
 
 // before call send function caller should set the evt 's VarAddr , and NetId to localaddr and local netid .
 // and you should call StartRfMonitor to start the rf .
-#define   SendRfMsgUndirect(id,addr)   setundirectmsg(id,addr)
-#define   SendRfMsgDirect(id,addr)     setdirectmsg(id,addr)
-#define   SendRfMsg(id,addr)           setwaitmsg(id,addr)
-
-
+#define SendOnlineMsg( id, addr)  setonlinemsg(id,addr); DoSend()
+//#define SendOfflineMsg(id,addr) setdirectmsg(id,addr) ; DoSend()
+/*
+uint8_t OnLeafWakeup( msg) 
+{ 
+    if(GetMacCmd == maccmd_checkonline 
+        findofflineaddr
+        insertrecvmsg
+        DoSend()
+*/
 #endif
 

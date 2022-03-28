@@ -14,8 +14,9 @@ static uint8_t       SpiRTxBuf[SPICmdBufCnt];
 
 
 #define CadDelay    8000      //based on us   when try to recv the cad delay time .
-static  uint32_t AirTime  = 200*64 ;     //send packet times  based on 15.625 us .  is used  to check if the send is overtime . cacl according to the current packet count .
-
+static  uint32_t AirTime  =  200*64 ;     //send packet times  based on 15.625 us .  is used  to check if the send is overtime . cacl according to the current packet count .
+static  uint32_t SleepTime = 2*64 ;   // sleep for 2ms
+static  uint32_t RecvTime =  1*64 ;   // listen for 1ms 
 
 /*
 const uint16_t RFDELAYTIME[(End_type - None)] =
@@ -689,45 +690,20 @@ void ClearDeviceErrors( void )
     WaitBusy();    
 }
 
-void StopDelay(void) ;
+
 // send Fifo len is the paylad cnt start at  SpiQueueTxBuf[8] (PACKET_USERID_CNT +4)
-void WriteFifo(Var32 msg)
+void WriteFifo(RfMsg msg)
 {   
     uint8_t i ,length,trycnt;  
+    LPFrameCtrl lpFrame ;
     uint8_t *lp ;
-    lp = (uint8_t *) getrfbuf(msg.data8.data0);
+    lpFrame = (LPFrameCtrl) getrfbuf(msg.value.memid);
     assert(lp !=NULL);
-    trycnt = *lp ; 
-    if(trycnt >0)
-    {
-        trycnt--;
-        *lp = trycnt ;
-    }
-    lp++;
-    length = *lp ;
-    lp++ ;
-    // set netname  
-    *lp = (uint8_t)(globaldata.cfgdata.NetName );
-    lp++ ;
-    *lp = (uint8_t)(globaldata.cfgdata.NetName >>8);
-    lp++ ;
-    // set netid  
-    //*lp = (uint8_t)(globaldata.cfgdata.NetId );
-    lp++ ;
-    //*lp = (uint8_t)(globaldata.cfgdata.NetId >>8);
-    lp++ ;
-    // set Sender 's Addr
-    *lp = (uint8_t)(globaldata.cfgdata.LocalAddr );
-    lp++ ;
-    *lp = (uint8_t)(globaldata.cfgdata.LocalAddr >>8);
+    length = lpFrame->MsgCnt ; 
+    lpFrame->NetName = globaldata.cfgdata.NetName  ;
+    lpFrame->SendAddr = globaldata.cfgdata.LocalAddr ;
+    lpFrame->VarAddr = msg.value.addr ;
     
-    // set var 's addr 
-    lp++;
-    *lp = msg.data8.data2;
-    lp++ ;
-    *lp = msg.data8.data3;  
-    
-    StopDelay();
     ClearIrqStatus( IRQ_RADIO_ALL );
     ClearLoraInterrupt();
     EnableLoraInterrupt();    
@@ -746,8 +722,9 @@ void WriteFifo(Var32 msg)
     while((SPI2->ISR & 0x03)!= 0x03) 
             __nop();    
     
-    // set ip return to  NetName position .
-    lp -= 7 ;
+    // set ip return to  buffer id position .
+    lp = (uint8_t *) lpFrame;
+    lp++ ;  // send from second byte .
 	for( i = 0; i < length; i++ )
 	{
 		SPI2->TXBUF = *lp;
@@ -756,9 +733,7 @@ void WriteFifo(Var32 msg)
         lp++ ;
 	}
     HighCS();
-    // discard the evt if trycnt == 0 
-    if(trycnt ==0)
-        freerfbuf(msg.data8.data0);
+
     INT_ENABLE();
     SPI_Disable(SPI2);
     DisablePeriph(Clock_SPI2); 
@@ -771,8 +746,8 @@ uint8_t ReadFifo()
     uint8_t msg ;
     uint8_t i ,length ;  
     uint8_t *lp ;
+    LPFrameCtrl lpFrame ;
     SetPacketParams(globaldata.cfgdata.PreambleNum,0,0xff,1,0);
-    StopDelay();
     ClearIrqStatus( IRQ_RADIO_ALL );
     ClearLoraInterrupt();
     EnableLoraInterrupt();   
@@ -801,12 +776,18 @@ uint8_t ReadFifo()
     // In case of LORA fixed header, implict mode  the payloadLength is obtained by reading
     // the register REG_LR_PAYLOADLENGTH
     length = SpiRTxBuf[2];    
+    if(length < MACHeaderSize)
+    {   
+        i= 0xff;
+        goto  FailNetName ;
+    }
+    
     msg = newrfbuf(0);
     lp = (uint8_t *)getrfbuf(msg);
-    *lp =  Max_Send ;
+    lpFrame = (LPFrameCtrl)lp ;
+    *lp =  length ;
     lp++ ;
-    *lp = length;
-    lp++;
+
     
     LowCS();
     SPI2->CR3 |= (SPI_CR3_TXBFC | SPI_CR3_RXBFC) ;
@@ -823,31 +804,22 @@ uint8_t ReadFifo()
             __nop(); 
 
     SPI2->CR3 |= (SPI_CR3_TXBFC | SPI_CR3_RXBFC) ;
-    
-    // check net name .
-	SPI2->TXBUF = 0x55;
-    while((SPI2->ISR & 0x03) != 0x03)
-        __nop();
-    *lp = SPI2->RXBUF;    
-    if(((uint8_t)(globaldata.cfgdata.NetName)) != *lp)
-    {
-        i = 0xff ;
-        goto  FailNetName ;
-    }        
-    lp++;
 
-	SPI2->TXBUF = 0x55;
-    while((SPI2->ISR & 0x03) != 0x03)
-        __nop();
-    *lp = SPI2->RXBUF;    
-    if(((uint8_t)(globaldata.cfgdata.NetName>>8)) != *lp)
-    {
-        i = 0xff ;
+	for( i = 0; i < MACHeaderSize; i++ )
+	{
+		SPI2->TXBUF = 0x55;
+        while((SPI2->ISR & 0x03) != 0x03)
+            __nop();
+		*lp = SPI2->RXBUF;        
+        lp++;
+	}    
+    if(lpFrame->NetName != globaldata.cfgdata.NetName )
+    {   
+        i= 0xff;
         goto  FailNetName ;
-    }        
-    lp++;    
+    }
     
-	for( i = 2; i < length; i++ )
+	for( i = MACHeaderSize; i < length; i++ )
 	{
 		SPI2->TXBUF = 0x55;
         while((SPI2->ISR & 0x03) != 0x03)
@@ -1046,7 +1018,7 @@ void LoraInit( void )
 
 void  OnLoraIqr(void)
 {
-    Var32 temp ;
+    RfMsg msg ;
     uint16_t irqRegs = GetIrqStatus( );
     ClearIrqStatus( IRQ_RADIO_ALL );
 
@@ -1054,11 +1026,14 @@ void  OnLoraIqr(void)
     if( ( irqRegs & IRQ_RX_DONE ) == IRQ_RX_DONE )
     { 
         // message recved .  check crcerr first then read it  .
-        if((irqRegs & IRQ_CRC_ERROR) == 0)
+        if((irqRegs & (IRQ_CRC_ERROR|IRQ_HEADER_ERROR)) == 0)
         { 
-            temp.data8.data0 = ReadFifo();
-            if(temp.data8.data0 != InvalidId)
+            msg.var.data8.data0 = ReadFifo();
+            
+            if(msg.var.data8.data0 != InvalidId)
             {
+                MacRecvProc(msg.var.data8.data0);
+                /*
                 #if  Use_Big_Evt  == 0                  
                 temp.data16.data1 = makeevt(Sig_Rf_Recv_Data,temp.data8.data0);
                 postevtbyindex(BlcId_Net,temp.data16.data1);  
@@ -1066,66 +1041,50 @@ void  OnLoraIqr(void)
                 temp.data32 = makeevt(Sig_Rf_Recv_Data,temp.data8.data0);
                 postevtbyindex(BlcId_Net,temp.data32);    
                 #endif                    
+                */
             }
+            goto TrySend ;
         }
-        goto ReStartCad ;
     }
    
     if( ( irqRegs & IRQ_CAD_DONE ) == IRQ_CAD_DONE )
     { // no msg checked . check if there  is msg to send .
-        temp =getdirectmsg();
-        if(temp.data8.data0 == InvalidId)
-        { // no direct msg . check wait msg .
-            if(rflayerdata.delaycnt >0)
-            {
-                rflayerdata.delaycnt -- ;
-            }
-            else
-            {
-                rflayerdata.delaycnt = Max_Delay;
-                temp = getundirectmsg();
-            }                
-        }
-        if(temp.data8.data0 != InvalidId)
+ TrySend :        
+        msg = getonlinemsg();
+        if(msg.value.memid != InvalidId)
         { // there is a msg need to send out .
-            WriteFifo(temp);
+            WriteFifo(msg);
             SetDioIrqParams( IRQ_TX_DONE|IRQ_RX_TX_TIMEOUT, IRQ_TX_DONE|IRQ_RX_TX_TIMEOUT );
             SetTx(AirTime);
+            rflayerdata.rfmode = rf_tx_snd ; 
         }
         else
-        { // no msg need to send . sleep a short time 
-            if(rflayerdata.cadcnt != INFINITE_CAD)
-                if(rflayerdata.cadcnt >0)
-                    rflayerdata.cadcnt -- ;
-            if((rflayerdata.cadcnt == 0)  && iswaitempty())
-            {
-                StopRfMonitor();
-                postevt((LPThdBlock)&(netmaster.super),Sig_Rf_Overtime);
-                return ;
-            }
-            else
-                WaitDelay();
+        { // no msg need to send .  goto RX_DC mode .
+            SetDioIrqParams( IRQ_RX_DONE, IRQ_RX_DONE );
+            SetRxDutyCycle(RecvTime ,SleepTime);
+            rflayerdata.rfmode = rf_rx_dc ;  
         }
     }
 
-    if( irqRegs & (IRQ_RX_TX_TIMEOUT|IRQ_HEADER_ERROR |IRQ_TX_DONE) )
+    if( irqRegs & (IRQ_RX_TX_TIMEOUT |IRQ_TX_DONE) )
     {
-ReStartCad :        
-        if(rflayerdata.cadcnt != INFINITE_CAD)
-            if(rflayerdata.cadcnt >0)
-                rflayerdata.cadcnt -- ;
-        rflayerdata.delaycnt = Max_Delay ;
-        WaitDelay();    
+        if(rflayerdata.rfmode == rf_tx_snd )
+        { //send finised , goto Rx mode , with overtime .
+            SetBufferBaseAddress( LORATXBASEADDR, LORARXBASEADDR ); 
+            SetDioIrqParams( IRQ_RX_DONE|IRQ_RX_TX_TIMEOUT, IRQ_RX_DONE|IRQ_RX_TX_TIMEOUT );
+            SetRx(AirTime);
+            rflayerdata.rfmode = rf_tx_rcv ;          
+        }
+        else if(rflayerdata.rfmode == rf_tx_rcv )
+             goto TrySend ;
     }
 
 }
 
 // start the RF in cad rx mode  , before this the RF should be poweron
-void StartRfMonitor(uint16_t cadcnt) 
+void StartRfMonitor() 
 {
-    rflayerdata.cadcnt = cadcnt ;
-    rflayerdata.delaycnt = Max_Delay;
-    StopDelay();
+    rflayerdata.rfmode = rf_cad_detect ;  
     ClearIrqStatus( IRQ_RADIO_ALL );
     ClearLoraInterrupt();
     EnableLoraInterrupt();
@@ -1135,18 +1094,47 @@ void StartRfMonitor(uint16_t cadcnt)
     // the  IRQ_CRC_ERROR do not create interrrupt .it  will be check before read the data out from Queue .
     // the IRQ_HEADER_ERROR will stop the recv proc .
     // goto cad mode . and enable recv.
-    SetDioIrqParams( IRQ_CRC_ERROR|IRQ_CAD_DONE|IRQ_HEADER_ERROR|IRQ_RX_DONE|IRQ_RX_TX_TIMEOUT, IRQ_CAD_DONE|IRQ_HEADER_ERROR|IRQ_RX_DONE|IRQ_RX_TX_TIMEOUT );
+    SetDioIrqParams( IRQ_CAD_DONE|IRQ_RX_DONE|IRQ_RX_TX_TIMEOUT, IRQ_CAD_DONE|IRQ_RX_DONE|IRQ_RX_TX_TIMEOUT );
     SetCadParams(CAD_SYMBOL_NUM,CAD_DET_PEAK,CAD_DET_MIN,LORA_CAD_RX,DefOverTime);
     SetCad();  
 }
+
 // stop the RF monitor . RF goto sleep mode .
 void StopRfMonitor() 
 {
-    rflayerdata.cadcnt = 0 ;
-    rflayerdata.delaycnt = Max_Delay;
-    StopDelay();
     DisableLoraInterrupt();
     ClearLoraInterrupt();
     ClearIrqStatus( IRQ_RADIO_ALL );
-    SetStandby(0);    
+    SetStandby(0);  
+    rflayerdata.rfmode = rf_init ;    
 }
+
+void SendMsg( RfMsg msg)
+{
+    assert(msg.value.memid != InvalidId);
+    // there is must a msg need to send out .
+    WriteFifo(msg);
+    SetDioIrqParams( IRQ_TX_DONE|IRQ_RX_TX_TIMEOUT, IRQ_TX_DONE|IRQ_RX_TX_TIMEOUT );
+    SetTx(AirTime);
+    rflayerdata.rfmode = rf_tx_snd ; 
+
+}
+void DoSend()
+{
+    RfMsg  msg ;
+    // check wait pin  : high  in sleep mode  . low in rx mode .
+    if(IsBusy())
+    {
+        Wakeup();
+    }
+    // check if there is data to send . else goto rx dc mode .
+    msg = getonlinemsg();
+
+    assert(msg.value.memid != InvalidId);
+    // there is must a msg need to send out .
+    WriteFifo(msg);
+    SetDioIrqParams( IRQ_TX_DONE|IRQ_RX_TX_TIMEOUT, IRQ_TX_DONE|IRQ_RX_TX_TIMEOUT );
+    SetTx(AirTime);
+    rflayerdata.rfmode = rf_tx_snd ; 
+}
+

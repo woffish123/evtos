@@ -215,8 +215,9 @@ void StartSoftTimer(uint8_t index)
 
 }
 
-// stop a timer  that has been start by  StartSoftTimer.
-void StopSoftTimer(uint8_t index)
+// stop a timer  that has been start by  StartSoftTimer. 
+// return 1 : stop timer ok , 0: not find the timer, that is already stoped 
+uint8_t StopSoftTimer(uint8_t index)
 {// find it in two list . then remove it from the list  and add it's delay to the delay of the one after it  
     uint8_t tempindex ;
     uint8_t lastindex ;
@@ -315,10 +316,9 @@ void StopSoftTimer(uint8_t index)
         }
     }
  FailFind :    
-    assert(0);
 	// not find the index .just return .
     INT_ENABLE();
-    return ;
+    return  0;
  FreeIndex :    
     // let it float if it has SftOpt_Lock option bit .
     if((SoftTimerCtrlBlock.block[index] & SftOpt_Lock) == 0)
@@ -329,12 +329,20 @@ void StopSoftTimer(uint8_t index)
         SoftTimerCtrlBlock.usedcnt -- ;
     }
     INT_ENABLE();
+    return 1 ;
 }
 
 void ReleaseSoftTimer(uint8_t index)
 {
     SoftTimerCtrlBlock.block[index] &= (~SftOpt_Lock);
-    StopSoftTimer(index);
+    if(!StopSoftTimer(index))
+    {
+        INT_DISABLE();
+        SoftTimerCtrlBlock.nextid[index] =SoftTimerCtrlBlock.freeheader ;
+        SoftTimerCtrlBlock.freeheader = index ;
+        SoftTimerCtrlBlock.usedcnt -- ;  
+        INT_ENABLE();    
+    }
 }
 
 // the current softtimer should still live . chang the delay time and restart it .

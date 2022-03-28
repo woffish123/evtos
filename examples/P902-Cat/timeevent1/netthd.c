@@ -11,7 +11,7 @@ StdEvt NetMasterEvtLoop[Max_NetMasterEvt];
 static LPLongProc  const NetMasterProcArray[]=
 {
     RfRegisterProc,
-    RfCheckUndirectMsgProc,
+    RfCheckOfflineMsgProc,
     RfGetRtcTime   ,
     0,
 };
@@ -32,7 +32,7 @@ void NetMasterInit(void)
         for(temp = 0 ; temp < 0x555; temp ++)
             __NOP();
         LoraInit();  
-        StartRfMonitor(INFINITE_CAD);
+        StartRfMonitor();
 #else    
     RfPowerOff();
 #endif    
@@ -48,6 +48,13 @@ void    NetMaster_proc(LPThdBlock const lpb, StdEvt evt)
     // longproc calling cmd , will be deal here 
     switch(evtid)
     {
+#if Nodetype != RootNode          
+        case  Sig_Rf_Discnt_Father :
+        { // dis connect with father node .
+            AddActiveProcById(BlcId_Net ,RfRegisterProcId);
+            return ;
+        }
+#endif        
         case  Sig_Rf_Recv_Data :
         {// receive a lower data .
             outlog(log_rf_recv_data);
@@ -56,26 +63,28 @@ void    NetMaster_proc(LPThdBlock const lpb, StdEvt evt)
         }
         case  Sig_Rtc_FixHourInt :
         { // every hour ,send this , to sub active cnt 
-            if(SubLocalLiveCnt())
+            if(SubActiveCnt())
             {
-                if(GetRfMode() < rf_gettime) 
+#if Nodetype != RootNode                
+                if(GetNetMode() < net_gettime) 
                 {
                     AddActiveProcById(BlcId_Net ,RfRegisterProcId);
                 }
-                else if(GetRfMode() <= rf_monitor)
+                else if(GetNetMode() <= net_monitor)
                     AddActiveProcById(BlcId_Net ,RfGetRtcTimeId);
 #if    Nodetype ==  LeafNode                
                 else
-                    AddActiveProcById(BlcId_Net ,RfCheckUndirectMsgProcId);
-#endif                
-            }
+                    AddActiveProcById(BlcId_Net ,RfCheckOnlineMsgProcId);
+#endif    
+#endif                                
             return ;
+            }
         }
         case  Sig_Rf_DayOver :
         { // send by rtc day alarm . no buffer with it .
           // evert day to sub all child or lead live count ,  to remove the node lose connectting a defined day count .  
             SubChildLiveCnt();
-
+#if    Nodetype !=  RootNode  
             if(SubFatherLiveCnt())
             { // the father has long time lose connected with local . 
               // start register again, but not clear the local data.
@@ -85,6 +94,7 @@ void    NetMaster_proc(LPThdBlock const lpb, StdEvt evt)
             {
                 AddActiveProcById(BlcId_Net ,RfGetRtcTimeId);
             }
+#endif            
             return ;
         }
         case     Sig_Rf_Recv_Msg :
@@ -132,7 +142,13 @@ void    NetMaster_proc(LPThdBlock const lpb, StdEvt evt)
             lpTx[11] = 'r' ;   
             LpUart0Send(evt); 
             return ;                
-        }        
+        }    
+        case     Sig_Rf_Overtime :
+        { // no rf msg send to leaf
+            StopRfMonitor();
+            RfPowerOff();
+            return ;
+        }            
         default :
             break;        
     }        
@@ -164,24 +180,24 @@ uint8_t RfRegisterProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
         LoraInit();
         outlog(log_rf_coldup);  
     }
-    if(rflayerdata.rfmode > rf_monitor)
+    if(rflayerdata.netmode > net_monitor)
         goto StartCheckOldInfor;
 
     
     
     ProcLoopCnt = Max_Rgst_Cnt ; //store the loop times  and also decide the delay between next try.
-    StartRfMonitor(INFINITE_CAD);   
+    StartRfMonitor();   
    
 
     //reset the inter data to invalid data .
-    rflayerdata.rfmode =  rf_init; 
+    rflayerdata.netmode =  net_init; 
     rflayerdata.rtcfreeday = 0 ;
     globaldata.cfgdata.NearTreeNode1 = OrphanLeafAddr ;
     globaldata.cfgdata.NearTreeNode2 = OrphanLeafAddr ;
     globaldata.cfgdata.NearTreeRssi1 = 0xff ;
     globaldata.cfgdata.NearTreeRssi2 = 0xff ;     
 StartSendBoradcast:        
-    outlog(log_rf_register); 
+    outlog(log_net_register); 
     // make a broad cast msg .
     evt = newrfbuf(globaldata.cfgdata.LocalAddr);    
     lpbuf  = (LPFrameCtrl)getrfbuf(evt) ;
@@ -232,7 +248,7 @@ StartSendBoradcast:
     }
     // finished receive nearby tree node broadcast .  trying to register .
     ProcLoopCnt =4 ;
-    rflayerdata.rfmode =  rf_register; 
+    rflayerdata.netmode =  net_register; 
 StartCheckOldInfor:     
 
     // have find a useable tree node , it's addr is temp .
@@ -269,7 +285,7 @@ StartCheckOldInfor:
         StopSoftTimer(ProcSftIndex);
     }      
     // register ok . try to get rtc time .
-    rflayerdata.rfmode =  rf_gettime; 
+    rflayerdata.netmode =  net_gettime; 
     ProcLoopCnt  = 3 ;
 StartSendGetTime:     
     // send a get rtc time 
@@ -293,34 +309,42 @@ StartSendGetTime:
         if(ProcLoopCnt > 0)
             goto StartSendGetTime ;
     }    
-    else
-    {
-        outlog(log_rf_asktimefail);
-        ReleaseSoftTimer(ProcSftIndex);
-    }  
+    outlog(log_rf_asktimefail);
 StopRegister:   
+    ReleaseSoftTimer(ProcSftIndex);
     
-#if  Nodetype  ==    LeafNode    
+#if  Nodetype  ==  LeafNode
     // for leaf node : set rf to standby mode . to reduce the power .  and send a Sig_Rf_Overtime msg . 
     // user can RfPowerOff(); to shutdown the rf power .
-    rflayerdata.rfmode =  rf_idle; 
-    StopRfMonitor();
-    postevt((LPThdBlock)&(netmaster.super),Sig_Rf_Overtime);
-#else
-    rflayerdata.rfmode =  rf_monitor;     
+    if(rflayerdata.netmode  > net_gettime)
+    {
+        rflayerdata.netmode =  net_idle; 
+        StopRfMonitor();
+    }
+    else
+    {
+        rflayerdata.netmode = net_init ;
+        postevt((LPThdBlock)&(netmaster.super),Sig_Rf_Overtime);
+    }
+#elif Nodetype  ==  TreeNode 
+    if(rflayerdata.netmode  < net_gettime)
+    {
+        rflayerdata.netmode = net_init ;
+        postevt((LPThdBlock)&(netmaster.super),Sig_Rf_Overtime);
+    }    
 #endif    
 //    DelActiveProc((LPThdBlock)(&netmaster),RfRegisterProcId);
     ThdEnd(lpdata);    
 }
-// send maccmd_checkundirect to get undirect msg .
-uint8_t RfCheckUndirectMsgProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
+// send maccmd_checkOnline to get online msg . this proc is used for leaf node only .
+uint8_t RfCheckOfflineMsgProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
 {
     // Notice the local param is used only between two ThdWait block .
     uint16_t temp ;
     LPFrameCtrl lpbuf ; 
     ThdBegin(lpdata);
     // check the if the net has finished register and gettime .
-    if(rflayerdata.rfmode <  rf_gettime) 
+    if(rflayerdata.netmode <  net_gettime) 
         goto StopProc ;
     // lpdata->procdata is valid for the while proc time .
     ProcLoopCnt = 0x2 ; //store the loop times  and also decide the delay between next try.
@@ -343,13 +367,13 @@ uint8_t RfCheckUndirectMsgProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpda
         OnStartRf();
         StartRfMonitor(INFINITE_CAD);    
     }
-StartCheckUndirect:
-    // make a check undirect msg .
+StartCheckOffline:
+    // make a check online msg .
     temp = getfatheraddr();
     evt = newrfbuf(temp);    
     lpbuf  = (LPFrameCtrl)getrfbuf(evt);
     lpbuf->MsgCnt = (sizeof(FrameCtrl) -2) ;
-    lpbuf->FrameBit = maccmd_checkundirect  | DirectionMask ;
+    lpbuf->FrameBit = maccmd_checkoffline  | DirectionMask ;
     lpbuf->NetId =  globaldata.cfgdata.NetId ;    
     SendRfMsgDirect(evt,temp) ;
 
@@ -357,26 +381,25 @@ StartCheckUndirect:
     SetSoftTimerDelayMs(ProcSftIndex,1500); 
     StartSoftTimer(ProcSftIndex);  
   
-    ThdWait1of2Sig(lpdata,dataindex,Sig_Rf_Rgst_Delay,Sig_Rf_CheckUndirect_OK);
+    ThdWait1of2Sig(lpdata,dataindex,Sig_Rf_Rgst_Delay,Sig_Rf_CheckOffline_OK);
     if(CheckEvt(evt,Sig_Rf_Rgst_Delay))
     { // faild ,retry
         ProcLoopCnt -- ;
         if(ProcLoopCnt > 0)
-            goto StartCheckUndirect  ;
+            goto StartCheckOffline  ;
     }
     
     ReleaseSoftTimer(ProcSftIndex);
    
-#if  Nodetype  ==    LeafNode    
     // for leaf node : set rf to standby mode . to reduce the power .  and send a Sig_Rf_Overtime msg . 
     // user can RfPowerOff(); to shutdown the rf power .
     StopRfMonitor();
     OnStopRf();
-    postevt((LPThdBlock)&(netmaster.super),Sig_Rf_Overtime);
-#endif 
+    if(ProcLoopCnt >0 )
+        postevt((LPThdBlock)&(netmaster.super),Sig_Rf_Overtime);
 StopProc :    
-//    DelActiveProc((LPThdBlock)(&netmaster),RfCheckUndirectMsgProcId);
-    __NOP();
+//    DelActiveProc((LPThdBlock)(&netmaster),RfCheckOfflineMsgProcId);
+    
     ThdEnd(lpdata);   
 }
 
@@ -387,13 +410,15 @@ uint8_t  RfGetRtcTime(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata)
     LPFrameCtrl lpbuf ; // Notice the local param is used only between two ThdWait block .
     // rf process do not allow proc running  together .
     ThdBegin(lpdata);
- 
+
+    if(rflayerdata.netmode <  net_register) 
+        goto StopProc ;
+    
     ProcSftIndex = GetFreeSoftTimer();
     SoftTimerBlockAndOpt(ProcSftIndex ,BlcId_Net,SftOpt_Lock);
     SetSoftTimerEvt(ProcSftIndex, Sig_Rf_Rgst_Delay);    
     // 初始化语句 ， 下列语句必须在正式开始前被系统进行一次调用以便达到正式等待的状态。
-    if(rflayerdata.rfmode <  rf_register) 
-        goto StopProc ;
+
     // 初始化语句结束， 开始等待第一个状态， 这里是程序正式开始执行的部分， 在相应的信号到来时被执行。
     ProcLoopCnt = 0x2 ; //store the loop times  and also decide the delay between next try.
     if(MODE_POWERDOWN == GetRfState())
@@ -434,8 +459,8 @@ StartGetRtcTime:
         if(ProcLoopCnt > 0)
             goto StartGetRtcTime ;
     }
-
     ReleaseSoftTimer(ProcSftIndex);
+    
  #if  Nodetype  ==    LeafNode    
     // for leaf node : set rf to standby mode . to reduce the power .  and send a Sig_Rf_Overtime msg . 
     // user can RfPowerOff(); to shutdown the rf power .
@@ -447,7 +472,7 @@ StartGetRtcTime:
     // 结束整个调用过程，进行清理活动 。  
 //    DelActiveProc((LPThdBlock)(&netmaster),RfGetRtcTimeId);
     //add a nop for goto no code warnning 
-    __NOP();
+
     ThdEnd(lpdata);
 }
 // mac layer end ----------------------------------------------------

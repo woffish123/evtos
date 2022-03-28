@@ -6,25 +6,30 @@
 #include "logbyte.h"
 
 // define the return value  .
-#define ThdProc_NotFind  0
+#define ThdProc_NotFind  0 
+#if StaticProcModeQuick != 1 
 #define ThdProc_Find     1
+#endif 
 #define ThdProc_Exit     2 
+
+
+
 
 // the static thread init .  should  called before static thread start  .
 #define ThdInit(lpdata)   (lpdata)->state16= 0 
 
-// if start the thread not need wait a sig
+// if start the thread not need offline a sig
 #define ThdBegin(lpdata) {  switch((lpdata)->state16) { case 0:  
 
 
 // return 2    
-#define ThdEnd(lpdata)   } (lpdata)->state16 =0; return ThdProc_Exit ; }  
+#define ThdEnd(lpdata)   __NOP();} (lpdata)->state16 =0; return ThdProc_Exit ; }  
 // 不等待任何值 
 #define ThdWait(lpdata)   LC_RETSET(lpdata->state16)     
 
 #if StaticProcModeQuick != 1 
     #define LC_RESUME(s,evt,sig) switch(s) { case 0: if(((evt)^(sig))&EvtSigMask ) { return ThdProc_NotFind;}   
-    // if  start thread with waitting a sig 
+    // if  start thread with offlineting a sig 
     #define ThdBeginSig(lpdata,evt,sig) {  LC_RESUME((lpdata)->state16,evt,sig) 
     // if  start thread with waitting a specail cndition .  
     #define ThdBeginCon(lpdata,condi) {  switch((lpdata)->state16) { case 0:  if(!condi) { return ThdProc_NotFind;}

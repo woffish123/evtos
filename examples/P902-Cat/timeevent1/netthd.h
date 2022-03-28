@@ -5,12 +5,11 @@
 
 
 
-//  the sx1262 proc has a directsendqueue .  a  undirectsendqueue ,and a waitreplyqueue .
+//  the sx1262 proc has a recv queue .  a  onlinesendqueue ,and a offline replyqueue .
 //  Notice :  the low 16bit of Evt is used to store the the msg short addr , used it to mark a childer
-//  directsendqueue :  when a msg need to sendout , it's hold in this queue first untill it is send out 
-//                     once send out , if it need ack it will be stored in waitackqueue
-//  undirectsendqueue : store the msg only send when there is a ask msg received .
-//  waitreplyqueue  : store the msg need ack/reply , but not been received , it will be send again when the rf proc in idle .
+//  recv queue :  when a msg revced , it's hold in this queue , and a msg recv event is send if recv queue is empty
+//  online queue : store the msg only send  to tree node , -> it do not need to send at once.
+//  offline queue  : store the msg to leaf node , it should be send out when recv a get offline cmd , at once .
 
 // the max evt count ,net thread can hold .
 #define Max_NetMasterEvt   8 
@@ -22,7 +21,7 @@
 typedef struct NetMaster_
 {
     ThdBlock super ; 
-    // the  common evt buffer , for directsendqueue, undirectsendqueue,and waitreplyqueue
+    // the  common evt buffer , for recvsendqueue, onlinesendqueue,and offline queue
  
 } NetMaster ;
 
@@ -39,10 +38,10 @@ void NetMasterInit(void);
 // the rtc time is dealed by default mac proc . we just need to send a rtc cmd out .
 uint8_t RfRegisterProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 
-// try to send a mac checkundirect cmd to father , to get the possible undirect cmd .
-// this is called when the child actived and no data to send to father . -> it must send something to  father , to check undirect msg and also notify  it's still lived 
-// if the child send a data msg to father or root , the undirect msg is send back also .
-uint8_t RfCheckUndirectMsgProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
+// try to send a mac checkonline cmd to father , to get the possible online cmd .
+// this is called when the child actived and no data to send to father . -> it must send something to  father , to check online msg and also notify  it's still lived 
+// if the child send a data msg to father or root , the online msg is send back also .
+uint8_t RfCheckOfflineMsgProc (StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 
 uint8_t RfGetRtcTime(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 
@@ -50,7 +49,7 @@ uint8_t RfGetRtcTime(StdEvt evt,uint8_t dataindex,LPLongProcData lpdata);
 typedef enum NetMasterProcId_
 {
     RfRegisterProcId = 0 ,
-    RfCheckUndirectMsgProcId,
+    RfCheckOfflineMsgProcId,
     RfGetRtcTimeId ,
 
 } NetMasterProcId ;

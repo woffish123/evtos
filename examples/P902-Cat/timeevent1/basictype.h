@@ -728,7 +728,7 @@ typedef enum Signal_
     Sig_Rtc_Adjust , //12 addjust the rtc  ADJUST regist  for test .
     Sig_50Hz_Set,    //13 set the 50hz duty. 
     Sig_IrDetect,     //14 do  a Ir send and receive .
-    Sig_GetRfMode,    //15 RF mode for test 
+    Sig_GetNetMode,    //15 RF mode for test 
     Sig_Wakeup ,      // 0x10  do wakeup , do not goto sleep mode , wait the update programe .
     Sig_DelayReset ,   //0x11 reset after 2 seconds .
     Sig_GotoBoot,      //0x12 reset and goto boot mode ,wait for fresh app . 
@@ -743,6 +743,7 @@ typedef enum Signal_
     // 下面是RF事件区域， MAC 部分上报状态信息 ， 以及上层下发特定的收发以及休眠到MAC层
     //--------------------------------------------------------------------    
     Sig_Rf_Overtime  = 0x80,   // lora detected a  send fail . : it has not receive a ack.
+    Sig_Rf_No_Msg,             // for leaf node , there is no msg send to local .
     Sig_Rf_Recv_Data,          // lora received a  block data , that  maybe a msg or a low net msg . 
     Sig_Rf_Recv_Msg,           // lora received a msg , that is send to local node 
     Sig_Rf_Register ,          // ask to start the registe proc 
@@ -750,8 +751,10 @@ typedef enum Signal_
     Sig_Rf_Register_OK,        // register ok . the node has jion to the local net .
     Sig_Rf_GetTime,          // used to test the Motor seting     
     Sig_Rf_GetTime_OK,       // receive a rtc time     
-    Sig_Rf_CheckUndirect,      // ask to start the check register proc.
-    Sig_Rf_CheckUndirect_OK,   // finish check undirect msg
+    Sig_Rf_CheckOffline,      // ask to start the check wait msg proc.
+    Sig_Rf_CheckOffline_OK,   // event received by leaf node : father node received Sig_Rf_CheckUndirect msg , stop check wait msg proc
+    Sig_Rf_Discnt_Father,     // dis connect with father .
+    
     
 
 
@@ -830,12 +833,12 @@ typedef enum Signal_
 #define  RootNode     1
 #define  TreeNode     2
 #define  LeafNode     3
-//#define  Nodetype     TreeNode
+#define  Nodetype     TreeNode
 //#define Nodetype    LeafNode
-#define Nodetype  RootNode  
+//#define Nodetype  RootNode  
 
 #define MaxNodeLiveCnt       4           //max 15, a counter based on day   a node lived if it not connect with other's  .it will be sub 1 every day.
-#define MaxChildActivePeriod (24*(MaxNodeLiveCnt/2) -1)   //max 255 a counter based on hour   every ChildActivePeriod * FixHourCnt hours  the child is wakeup to send mac check undirect msg.
+#define MaxChildActivePeriod (24*(MaxNodeLiveCnt/2) -1)   //max 255 a counter based on hour   every ChildActivePeriod * FixHourCnt hours  the child is wakeup to send mac check online msg.
 #if MaxNodeLiveCnt*24 <= MaxChildActivePeriod
 #error active period should small than Node Live cnt,it is recommand MaxChildActivePeriod *3 +1 == MaxNodeLiveCnt*24 
 #endif

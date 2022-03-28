@@ -455,15 +455,13 @@ void RfPowerOn(void);
 // shutdown the rf .
 void RfPowerOff(void );
 
-void StartRfMonitor(uint16_t cadcnt) ;
+void StartRfMonitor(void) ;
 // stop the RF monitor . RF goto sleep mode .
 void StopRfMonitor(void) ;
+// stop rx_dc mode check if there is online msg and  goto send mode .
+void DoSend(void) ;
 
-// write a msg to fifo .
-//void WriteFifo(uint8_t msg);
-// get a new rf buffer  read msg to it  
-//uint8_t   ReadFifo(void);
-
+void SendMsg(RfMsg msg);
 
 
 

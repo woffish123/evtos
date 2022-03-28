@@ -22,34 +22,18 @@ __STATIC_INLINE uint16_t getaddrbynetid(uint16_t netid)
 
 #endif
 
-// const 63 leaf node ,and 3 child node  and 1 father node live cnt .  63+3 =66  =33byte .
-#define ChildNodeCnt      34   // byte 32-33 is used for tree node and father node .
-#define ChildTreeOffset   64   // byte 0-31 used for leaf node .  
-#define FatherTreeOffset  67   // byte 33 high byte ,used for father live cnt
-
-static uint8_t ChildNodeLiveCnt[ChildNodeCnt];
-static uint8_t NodeActiveCnt = 0;
-// check if the local node ,active cnt is over time .
-uint8_t SubLocalLiveCnt(void)
-{
-    if(NodeActiveCnt > 0)
-    {
-        NodeActiveCnt -- ;
-        return 0;
-    }
-//    NodeActiveCnt = globaldata.cfgdata.ActivePeriod ;
-    return 1 ;
-}
-// set local node as just register ok - max live count
-__STATIC_INLINE void ResetActiveCnt(void)
-{
-    NodeActiveCnt = globaldata.cfgdata.ActivePeriod ;
-}
-// index start from 0 - 62  is leaf node range . 64-66 is tree node range . 67 is father live cnt;
-void ResetLiveCnt(uint8_t index)
+#if Nodetype != LeafNode
+#define MaxLeafNodeCnt  63
+#define MaxTreeNodeCnt   3
+// const 63 leaf node  used 0- 32 byte ,and 3 child node  and 1 father node live cnt  used 33 -34 byte.   every node use half byte as live cnt 
+#define NodeCnt      34   // byte 0-32 is for leaf node , 33-34 is used for tree node and father node .
+#define TreeNodeOffset  33
+static uint8_t ChildNodeLiveCnt[NodeCnt];
+// index start from 0 - 62  is leaf node range . 63-65 is tree node range . 67 is father live cnt;
+void ResetLeafLiveCnt(uint8_t index)
 {
     uint8_t res ;
-    if (index >= ChildNodeCnt*2 )
+    if (index >= MaxLeafNodeCnt )
         return ;
     res = index >> 1 ;
     index = index & 1 ;
@@ -64,25 +48,29 @@ void ResetLiveCnt(uint8_t index)
        ChildNodeLiveCnt[res] |= MaxNodeLiveCnt  ;   
     }
 }
-// sub father live cnt , return 1 ,if father live cnt is  0 ,else return  0 
-uint8_t  SubFatherLiveCnt(void)
+
+void ResetTreeLiveCnt(uint8_t index)
 {
-#if Nodetype    != RootNode
-    uint8_t res =  ChildNodeLiveCnt[33];
-    if(res & 0xf0)
-    {
-        res -= 0x10 ;
-        ChildNodeLiveCnt[33] =  res ;
-        return 0;
+    uint8_t res ;
+    if (index >= MaxTreeNodeCnt )
+        return ;
+    res = index >> 1 ;
+    res += TreeNodeOffset ;
+    index = index & 1 ;
+    if(index )
+    { // 1 is high byte  ,start from low byte
+       ChildNodeLiveCnt[res] &= 0x0f ;
+       ChildNodeLiveCnt[res] |= (MaxNodeLiveCnt <<4) ;
     }
-    return 1 ;
-#else
-    return 0;    
-#endif    
-        
+    else
+    { // 0 is low byte
+       ChildNodeLiveCnt[res] &= 0xf0 ;
+       ChildNodeLiveCnt[res] |= MaxNodeLiveCnt  ;   
+    }
+
 }
-// sub all item 1 , if it's 0 reset the fitable bitmap bit .
-void  SubChildLiveCnt(void)
+// sub all item 1 , if it's 0 reset the leaf bitmap bit .
+void  SubChildNodeLiveCnt(void)
 {
     uint32_t bitmap ;
     uint8_t res ,index;
@@ -162,367 +150,740 @@ void  SubChildLiveCnt(void)
             ChildNodeLiveCnt[index>>1 ] = res ;    
         }
         bitmap <<=1 ;    
-    }      
+    } 
  }
+#else // local is  a leaf node 
+#define NodeCnt      1   // byte 0-32 is for leaf node , 33-34 is used for tree node and father node .
+static uint8_t ChildNodeLiveCnt[NodeCnt]; 
+#endif
+ 
+#if Nodetype != RootNode 
+// sub father live cnt , return 1 ,if father live cnt is  0 ,else return  0 
+void SubFatherLiveCnt(void)
+{
+    uint8_t res =  ChildNodeLiveCnt[NodeCnt -1];
+    if(res & 0xf0)
+    {
+        res -= 0x10 ;
+        ChildNodeLiveCnt[NodeCnt -1] =  res ;
+        return ;
+    }
+    postevtbyindex(BlcId_Net,Sig_Rf_Discnt_Father);
+}
+void  ResetFatherLiveCnt(void)
+{
+    ChildNodeLiveCnt[NodeCnt -1] |=  0xf0 ;
+  
+}
+#endif
 
 
+static uint8_t NodeActiveCnt = 0;  // used to set max getrtc time cnt .
+// check if the local node ,active cnt is over time .
+uint8_t SubActiveCnt(void)
+{
+    if(NodeActiveCnt > 0)
+    {
+        NodeActiveCnt -- ;
+        return 0;
+    }
+    return 1 ;
+}
+// set local node as just register ok - max live count
+__STATIC_INLINE void ResetActiveCnt(void)
+{
+    NodeActiveCnt = globaldata.cfgdata.ActivePeriod ;
+}
+
+
+ 
+// mac layer part  -----------------------------------------------
+
+// init the mac layer event buffer and the live cnt to zero . 
+// it is called at node reset .
+void rflayerdataInit(void)
+{
+    uint16_t i ;
+    uint32_t * lp32;
+    uint8_t *lp8 ;
+    // init the rf memory pool .
+    lp32 = rflayerdata.memarray;   
+    // fill memarray to next id  to make a list . 
+    for(i = 0 ; i< (PoolRF_Cnt-1) ; i++)
+    {
+        *lp32 = i+1 ;
+        lp32 += PoolRF_Size;
+    }
+    // set last as invalid  to mark the list end .
+    *lp32 = InvalidId ;
+    // fill rflayerbuf to make a list , rflayerbuf hold the rf memarray index  that is used in Mac layer , 
+    // there also some memarray is send to Net layer .
+    lp32 = (uint32_t *)rflayerdata.msglist ;
+    for(i =0 ; i< (Max_RfLayerMem-1)  ; i++)
+    {// set msg.memid = 0xff , msg.nextid = i+1;
+        *lp32 =0xff00 | (i+1);
+        lp32 ++ ;
+    }
+    *lp32 = 0xffff ;  // set last to invalidid 
+    
+    // set all index as invalid 
+    rflayerdata.freeheader = 0 ;
+    rflayerdata.recvheader = InvalidId ;
+    rflayerdata.onlineheader = InvalidId ;
+    rflayerdata.offlineheader = InvalidId ;
+    
+    rflayerdata.onlinecur = InvalidId ;    
+    rflayerdata.onlineender = InvalidId ;    
+    rflayerdata.recvender = InvalidId ;
+    
+    rflayerdata.netmode = net_init ;
+    rflayerdata.rfmode  = rf_init ;
+    rflayerdata.memfree = 0 ;
+    rflayerdata.rtcfreeday = 0 ;
+    // clear the node address to node id array .
+    
+	lp8 = ChildNodeLiveCnt;
+    i = NodeCnt  ;
+    while(i)    
+    {
+        *lp8 = 0x0;
+        lp8++ ;
+        i-- ;
+    }
+    NodeActiveCnt =  0;
+#if Nodetype == RootNode
+    
+    if(((uint32_t) NetIdAddrArray) &0x03)
+    { // not 4 byte assigned .
+        NetIdAddrArray[0] =  0xffff ;
+        lp32 = (uint32_t *)(&NetIdAddrArray[1]);
+        i = (MaxNetId -1) >>1 ;
+    }
+    else
+    {
+        lp32 = (uint32_t *)NetIdAddrArray;
+        i = MaxNetId >>1 ;
+    }
+    while(i)    
+    {
+        *lp32 = 0xffffffff;
+        lp32++ ;
+        i-- ;
+    }
+    // set the last one , it maybe not setted .
+    NetIdAddrArray[MaxNetId-1] = 0xffff;
+#endif   
+
+}
+// release all msg memery stored in  rflayerdata . it is called when RF power off 
+// there maybe other rf memory is used by other code ,  not influence them .
+void rflayerdatarelease(void)
+{
+     uint8_t id ;
+     uint32_t * lp32 ;
+     id = rflayerdata.recvheader ;
+     while(id != InvalidId)
+     {
+        freerfbuf(rflayerdata.msglist[id].value.memid);
+        id = rflayerdata.msglist[id].value.nextid; 
+     }
+     id = rflayerdata.onlineheader ;
+     while(id != InvalidId)
+     {
+        freerfbuf(rflayerdata.msglist[id].value.memid);
+        id = rflayerdata.msglist[id].value.nextid; 
+     }    
+     id = rflayerdata.offlineheader ;
+     while(id != InvalidId)
+     {
+        freerfbuf(rflayerdata.msglist[id].value.memid);
+        id = rflayerdata.msglist[id].value.nextid; 
+     } 
+    lp32 = (uint32_t *)rflayerdata.msglist ;
+    for(id =0 ; id< (Max_RfLayerMem-1)  ; id++)
+    {// set msg.memid = 0xff , msg.nextid = i+1;
+        *lp32 =0xff00 | (id+1);
+        lp32 ++ ;
+    }
+    *lp32 = 0xffff ;  // set last to invalidid 
+    
+    // set all index as invalid 
+    rflayerdata.freeheader = 0 ;
+    rflayerdata.recvheader = InvalidId ;
+    rflayerdata.onlineheader = InvalidId ;
+    rflayerdata.offlineheader = InvalidId ;
+    
+    rflayerdata.onlinecur = InvalidId ;    
+    rflayerdata.onlineender = InvalidId ;    
+    rflayerdata.recvender = InvalidId ;    
+    
+    rflayerdata.netmode = net_init ;
+    rflayerdata.rfmode  = rf_init ;
+    rflayerdata.memfree = 0 ;
+    rflayerdata.rtcfreeday = 0 ;    
+}
+
+
+uint8_t CheckRtcFreeDay(void)  
+{
+#if  Nodetype !=  RootNode     
+    if(rflayerdata.netmode < net_monitor)
+        return 0;
+    if(rflayerdata.rtcfreeday > Max_RtcFreeCnt)
+        return 1 ;
+    else
+        rflayerdata.rtcfreeday ++; 
+#endif   
+    return 0;
+   
+} 
 
 // get a rf buffer , it try to get a new buffer from pool2 :  newevt(addr,PoolId2)
-// if there is no buffer , it discard the last item in undirect queue or wait queue 
+// if there is no buffer , it discard the last item in online queue or offline queue 
 uint8_t newrfbuf(uint16_t addr)
 {
-    Var32 var  ;
+    RfMsg var  ;
     
-    if(rflayerdata.freecnt >0 )
+    if(rflayerdata.memfree != InvalidId )
     {
         INT_DISABLE();
-        var.data8.data0 = rflayerdata.idfree;
-        rflayerdata.idfree =  * (rflayerdata.memarray+ PoolRF_Size * var.data8.data0);
-        rflayerdata.freecnt -- ;
+        var.value.memid = rflayerdata.memfree;
+        rflayerdata.memfree = (uint8_t) * ((uint32_t *)(rflayerdata.memarray+ PoolRF_Size * var.value.memid));
         INT_ENABLE();
-        return var.data8.data0 ;
+        return var.value.memid ;
     }
     // no free buffer .
-    //try to get one from undirect , wait queue.
-    var = getundirectmsg();
-    if(var.data8.data0 == InvalidId)
+    //try to get one from online , offline queue.
+    var = getonlinemsg();
+    if(var.value.memid == InvalidId)
     {
-        var = getwaitmsg();
+        if(rflayerdata.offlineheader != InvalidId)
+            var = rmofflineid(rflayerdata.msglist[rflayerdata.offlineheader].value.memid );
     }
-    assert(var.data8.data0 != InvalidId);
-    return var.data8.data0 ;
+    assert(var.value.memid != InvalidId);
+    return var.value.memid ;
 }
 
 void freerfbuf(uint8_t id)
 {
 	INT_DISABLE();
-	*(rflayerdata.memarray+ PoolRF_Size * id) =  rflayerdata.idfree;
-	rflayerdata.idfree = id ;
-	rflayerdata.freecnt  ++;
+	*((uint32_t *)(rflayerdata.memarray+ PoolRF_Size * id)) =  rflayerdata.memfree;
+	rflayerdata.memfree = id ;
 	INT_ENABLE();
 }
 
-// put a evt to direct queue ender.
-void  setdirectmsg(uint8_t msg,uint16_t addr)
+// put a evt to recv queue ender.
+uint8_t  addrecvmsg(uint8_t msg,uint16_t addr)
 {
-    uint8_t  temp ,id;
+    uint8_t  id;
     // there must has a free postion.
     assert(rflayerdata.freeheader != InvalidId);
     // get first and next free item  .
     id = rflayerdata.freeheader ;
-    rflayerdata.freeheader = rflayerdata.nextid[id];
+    rflayerdata.freeheader = rflayerdata.msglist[id].value.nextid;
     
     // store the msg to first free position
-    rflayerdata.rflayerbuf[id] = msg ;
-    rflayerdata.rflayeraddr[id] = addr ;
-    // add it to direct queue end 
-    temp = rflayerdata.directheader ;
-    while(rflayerdata.nextid[temp] != InvalidId)
+    rflayerdata.msglist[id].value.memid = msg ;
+    rflayerdata.msglist[id].value.addr = addr ;
+    rflayerdata.msglist[id].value.nextid = InvalidId;
+    // add it to recv queue end 
+    if(rflayerdata.recvender == InvalidId)
     {
-        temp = rflayerdata.nextid[temp];
+        assert(rflayerdata.recvheader == InvalidId);
+        rflayerdata.recvheader = id ;
+        rflayerdata.recvender = id ; 
+        return 1;
     }
-    rflayerdata.nextid[temp] = id ;
-    rflayerdata.nextid[id] = InvalidId ;
+    else
+    {
+        assert(rflayerdata.recvheader != InvalidId);
+        rflayerdata.msglist[rflayerdata.recvender].value.nextid = id ;
+        rflayerdata.recvender = id ; 
+        return 0;
+    }
+   
 }
-// get a msg from direct queue 
-Var32 getdirectmsg()
+
+// put a evt to recv queue header.
+uint8_t  insertrecvmsg(uint8_t msg,uint16_t addr)
 {
-    Var32 var ;
+    uint8_t  id;
+    // there must has a free postion.
+    assert(rflayerdata.freeheader != InvalidId);
+    // get first and next free item  .
+    id = rflayerdata.freeheader ;
+    rflayerdata.freeheader = rflayerdata.msglist[id].value.nextid;
+    
+    // store the msg to first free position
+    rflayerdata.msglist[id].value.memid = msg ;
+    rflayerdata.msglist[id].value.addr = addr ;
+    rflayerdata.msglist[id].value.nextid = rflayerdata.recvheader;
+    rflayerdata.recvheader = id ;
+    // add it to recv queue end 
+    if(rflayerdata.recvender == InvalidId)
+    {
+        assert(rflayerdata.recvheader == InvalidId);
+        rflayerdata.recvheader = id ;
+        return 1;
+    }
+    return 0;
+}
+// return the first msg from recv queue , and remove it from  recv queue
+RfMsg rmrecvmsg()
+{
+    RfMsg var ;
     uint8_t id ;
     // get the first msg
-    if(rflayerdata.directheader == InvalidId)
+    if(rflayerdata.recvheader == InvalidId)
     {
-        var.data8.data0 = InvalidId ;
+        var.value.memid = InvalidId ;
         return var ;
     }
-    // update the direct queue.
-    id = rflayerdata.directheader ;
-    var.data8.data0 =  rflayerdata.rflayerbuf[id] ;
-    var.data16.data1 = rflayerdata.rflayeraddr[id] ;
-    rflayerdata.directheader = rflayerdata.nextid[id];
+    // update the recv queue.
+    id = rflayerdata.recvheader ;
+    var.var.data32 = rflayerdata.msglist[id].var.data32 ;
+    rflayerdata.recvheader = var.value.nextid;
+    if(rflayerdata.recvender == id)
+        rflayerdata.recvender = InvalidId;
     // store the postion to free queue
-    rflayerdata.nextid[id] = rflayerdata.freeheader ;
+    rflayerdata.msglist[id].value.nextid = rflayerdata.freeheader ;
     rflayerdata.freeheader = id ;
     return var ;    
 }
 
-// try to find a specail msg id
-uint8_t finddirectaddr(uint16_t addr)
+// try to find a specail msg id in recv list ,it's addr is same as input .
+RfMsg findrecvaddr(uint16_t addr)
 {
-    uint8_t id ;
-    id  = rflayerdata.directheader ;
-    while(id != InvalidId)
+    RfMsg msg ;
+    msg.value.memid = InvalidId ;
+    msg.value.nextid  = rflayerdata.recvheader ;
+    while(msg.value.nextid != InvalidId)
     {
-        if(rflayerdata.rflayeraddr[id] == addr )    
-            return id ;
-        id = rflayerdata.nextid[id];
+        if(rflayerdata.msglist[msg.value.nextid].value.addr == addr )    
+            return msg ;
+        msg.value.nextid = rflayerdata.msglist[msg.value.nextid].value.nextid;
     }
-    return InvalidId ;
+    return msg ;
 }
-// remove msg from queue .
-Var32 rmdirectaddr(uint16_t addr)
+// remove all msg with specail addr from queue .
+void rmrecvaddr(uint16_t addr)
 {
-    Var32 var ;
-    var.data8.data0 = InvalidId ;
-    var.data8.data1  = rflayerdata.directheader ;
-    if(var.data8.data1 == InvalidId)
+    uint8_t cur ,last ;
+    cur  = rflayerdata.recvheader ;
+    if(cur == InvalidId)
+        return  ;
+    // use last to hold the last id .
+    last =  InvalidId;
+    while(cur != InvalidId)
     {
-        return var ;
-    }
-    // find the addr ,store it at id ;
-    var.data8.data0  = var.data8.data1 ;
-    if(rflayerdata.rflayeraddr[var.data8.data1] == addr )
-    {
-        rflayerdata.directheader = rflayerdata.nextid[var.data8.data1] ;
-    }
-    else
-    {   
-        var.data8.data1  =  rflayerdata.nextid[var.data8.data1];   
-        while(var.data8.data1 != InvalidId)
-        {
-            if(rflayerdata.rflayeraddr[var.data8.data1] == addr )    
-            {
-                rflayerdata.nextid[var.data8.data0] = rflayerdata.nextid[var.data8.data1] ;
-                break;
+        if(rflayerdata.msglist[cur].value.addr == addr )    
+        { // remove cur .
+            freerfbuf(rflayerdata.msglist[cur].value.memid);
+            if(last == InvalidId)            
+            {// first one .
+                last = cur ;
+                cur =rflayerdata.msglist[cur].value.nextid ;
+                rflayerdata.recvheader = cur ;
+                rflayerdata.msglist[last].value.nextid  = rflayerdata.freeheader ;
+                rflayerdata.freeheader = last ;
+                last = InvalidId ;
             }
             else
             {
-                var.data8.data0 = var.data8.data1;
-                var.data8.data1 = rflayerdata.nextid[var.data8.data1] ;
+                rflayerdata.msglist[last].value.nextid =  rflayerdata.msglist[cur].value.nextid ;      
+                rflayerdata.msglist[cur].value.nextid  = rflayerdata.freeheader ;
+                rflayerdata.freeheader = cur ; 
+                cur  = rflayerdata.msglist[last].value.nextid ;
             }
         }
-        if(var.data8.data1 == InvalidId)
+        else
         {
-            var.data8.data0 = InvalidId;
-            return var;
+            // goto next 
+            last= cur ;
+            cur = rflayerdata.msglist[cur].value.nextid;
         }
     }
-    // put id to free queue .
-    var.data8.data0  = var.data8.data1 ; 
-    rflayerdata.nextid[var.data8.data0] = rflayerdata.freeheader ;
-    rflayerdata.freeheader = var.data8.data0 ;
-    var.data16.data1 = rflayerdata.rflayeraddr[var.data8.data0];
-    return var ;
+    rflayerdata.recvender = last ;
 }
 
 // put a msg to direct queue at ender .
-void  setundirectmsg(uint8_t msg ,uint16_t addr)
+void  addonlinemsg(uint8_t msg ,uint16_t addr)
 {
-    uint8_t  temp ,id;
+    uint8_t id;
     // there must has a free postion.
     assert(rflayerdata.freeheader != InvalidId);
     // get first and next free item  .
     id = rflayerdata.freeheader ;
-    rflayerdata.freeheader = rflayerdata.nextid[id];
-    
+    rflayerdata.freeheader = rflayerdata.msglist[id].value.nextid;
+    rflayerdata.msglivecnt[id] = MsgMaxSendCnt;
     // store the msg to first free position
-    rflayerdata.rflayerbuf[id] = msg ;
-    rflayerdata.rflayeraddr[id] = addr ;
+    rflayerdata.msglist[id].value.memid = msg ;
+    rflayerdata.msglist[id].value.addr = addr ;
     
-    rflayerdata.nextid[id] = InvalidId ;
+    rflayerdata.msglist[id].value.nextid = InvalidId ;
     // add it to direct queue end 
-    if(rflayerdata.undirectheader == InvalidId)
+    if(rflayerdata.onlineheader == InvalidId)
     {
-        rflayerdata.undirectheader = id;
-        return ;
-    }
-    temp = rflayerdata.undirectheader ;
-    while(rflayerdata.nextid[temp] != InvalidId)
-    {
-        temp = rflayerdata.nextid[temp];
-    }
-    rflayerdata.nextid[temp] = id ;
-
-}
-// get a msg from undirect queue header 
-Var32 getundirectmsg()
-{
-    Var32 var ;
-    uint8_t id ;
-    // get the first msg
-    if(rflayerdata.undirectheader == InvalidId)
-    {
-        var.data8.data0 = InvalidId ;
-        return var ;
-    }
-    // update the direct queue.
-    id = rflayerdata.undirectheader ;
-    var.data8.data0 =  rflayerdata.rflayerbuf[id] ;
-    var.data16.data1 = rflayerdata.rflayeraddr[id] ;
-    rflayerdata.undirectheader = rflayerdata.nextid[id];
-    // store the postion to free queue
-    rflayerdata.nextid[id] = rflayerdata.freeheader ;
-    rflayerdata.freeheader = id ;
-    return var ;    
-}
-
-// try to find a specail msg id
-uint8_t findundirectaddr(uint16_t addr)
-{
-    uint8_t id ;
-    id  = rflayerdata.undirectheader ;
-    while(id != InvalidId)
-    {
-        if(rflayerdata.rflayeraddr[id] == addr )    
-            return id ;
-        id = rflayerdata.nextid[id];
-    }
-    return InvalidId ;
-}
-// remove msg from queue .
-Var32 rmundirectaddr(uint16_t addr)
-{
-    Var32 var ;
-    var.data8.data0 = InvalidId ;
-    var.data8.data1  = rflayerdata.undirectheader ;
-    if(var.data8.data1 == InvalidId)
-    {
-        return var ;
-    }
-    // find the addr ,store it at id ;
-    var.data8.data0  = var.data8.data1 ;
-    if(rflayerdata.rflayeraddr[var.data8.data1] == addr )
-    {
-        rflayerdata.undirectheader = rflayerdata.nextid[var.data8.data1] ;
+        rflayerdata.onlineheader = id;
+        rflayerdata.onlinecur = id ;
     }
     else
-    {   
-        var.data8.data1  =  rflayerdata.nextid[var.data8.data1];   
-        while(var.data8.data1 != InvalidId)
+    {
+        rflayerdata.msglist[rflayerdata.onlineender].value.nextid = id ;
+    }
+    rflayerdata.onlineender = id ;    
+}
+// get a msg from online queue . not remove .
+// Notice not return the first one ,but current one ,add the current one will be changed.
+RfMsg getonlinemsg()
+{
+    RfMsg var ;
+    StdEvt  evt ;
+    uint8_t id ;
+    var.value.memid = rflayerdata.onlinecur;
+    // get the first msg
+    if(var.value.memid == InvalidId)
+        return var ;
+    id = var.value.memid ;
+    var.var.data32 = rflayerdata.msglist[id].var.data32 ;
+    
+    if(id == rflayerdata.onlineender)
+        rflayerdata.onlinecur = rflayerdata.onlineheader ;
+    else
+    {
+        rflayerdata.onlinecur = rflayerdata.msglist[id].value.nextid ;
+    } 
+    if(rflayerdata.msglivecnt[id] > 0)
+    {
+        rflayerdata.msglivecnt[id]-- ;
+        return var ;
+    }
+
+    evt = makeevt(Sig_Rf_Overtime,var.value.memid);
+    postevtbyindex(BlcId_Net,evt);  
+    // remove this one and post it to net layer .
+    evt = rflayerdata.onlineheader ;
+    if(id == evt)
+    {// is the first one .
+        rflayerdata.onlineheader  = rflayerdata.msglist[evt].value.nextid ;
+        if(rflayerdata.onlineender == id)
         {
-            if(rflayerdata.rflayeraddr[var.data8.data1] == addr )    
-            {
-                rflayerdata.nextid[var.data8.data0] = rflayerdata.nextid[var.data8.data1] ;
-                break;
+            rflayerdata.onlinecur = InvalidId ;
+            rflayerdata.onlineender = InvalidId;
+            rflayerdata.onlineheader = InvalidId;
+        }
+    }else
+    {// it must can be find .
+        while(rflayerdata.msglist[evt].value.nextid != id)
+        {
+            evt = rflayerdata.msglist[evt].value.nextid ;
+        }
+        rflayerdata.msglist[evt].value.nextid = rflayerdata.msglist[id].value.nextid ;
+        if(rflayerdata.onlineender == id)
+        {
+            rflayerdata.onlinecur = rflayerdata.onlineheader ;
+            rflayerdata.onlineender = evt;
+        }        
+    }
+    // return to free list .
+    rflayerdata.msglist[id].value.nextid = rflayerdata.freeheader ;
+    rflayerdata.freeheader = id ;        
+    // update cur and ender .
+    
+    return var ;  
+}
+
+// remove all msg from queue  that addr is specail.
+void rmonlineaddr(uint16_t addr)
+{
+    uint8_t cur ,last ;
+    cur  = rflayerdata.onlineheader ;
+    if(cur == InvalidId)
+        return  ;
+    // use last to hold the last id .
+    last =  InvalidId;
+    while(cur != InvalidId)
+    {
+        if(rflayerdata.msglist[cur].value.addr == addr )    
+        { // remove cur .
+            freerfbuf(rflayerdata.msglist[cur].value.memid);
+            if(last == InvalidId)            
+            {// first one .
+                last = cur ;
+                cur =rflayerdata.msglist[cur].value.nextid ;
+                rflayerdata.onlineheader = cur ;
+                rflayerdata.msglist[last].value.nextid  = rflayerdata.freeheader ;
+                rflayerdata.freeheader = last ;
+                last = InvalidId ;
             }
             else
             {
-                var.data8.data0 = var.data8.data1;
-                var.data8.data1 = rflayerdata.nextid[var.data8.data1] ;
+                rflayerdata.msglist[last].value.nextid =  rflayerdata.msglist[cur].value.nextid ;   
+                rflayerdata.msglist[cur].value.nextid  = rflayerdata.freeheader ;
+                rflayerdata.freeheader = cur ; 
+                cur  = rflayerdata.msglist[last].value.nextid ;
             }
         }
-        if(var.data8.data1 == InvalidId)
+        else
         {
-            var.data8.data0 = InvalidId;
-            return var;
+            // goto next 
+            last= cur ;
+            cur = rflayerdata.msglist[cur].value.nextid;
         }
     }
-    // put id to free queue .
-    var.data8.data0  = var.data8.data1 ; 
-    rflayerdata.nextid[var.data8.data0] = rflayerdata.freeheader ;
-    rflayerdata.freeheader = var.data8.data0 ;
-    var.data16.data1 = rflayerdata.rflayeraddr[var.data8.data0];
-    return var ;
+    //set cur == first .
+    rflayerdata.onlineender = last ;
+    rflayerdata.onlinecur = rflayerdata.onlineheader ;
+
 }
+// remove the msg the buffer id is specailed . there only one could find .
+RfMsg rmonlineid(uint8_t bufid)
+{
+    RfMsg var ;
+    var.value.memid = rflayerdata.onlineheader  ;
+    if(var.value.memid == InvalidId)
+        return var ;    
+    if(rflayerdata.msglist[var.value.memid].value.memid == bufid )
+    { // is first one 
+        bufid = var.value.memid  ;
+        rflayerdata.onlineheader  = rflayerdata.msglist[bufid].value.nextid ;
+        var.var.data32 = rflayerdata.msglist[bufid].var.data32;
+        // update cur and ender .
+        if(rflayerdata.onlineender == bufid)
+        {
+            rflayerdata.onlinecur = InvalidId ;
+            rflayerdata.onlineender = InvalidId;
+            rflayerdata.onlineheader = InvalidId;
+        }
+        else
+        {
+            if(rflayerdata.onlinecur == bufid)
+                 rflayerdata.onlinecur  = rflayerdata.onlineheader;
+        }
+        // return to free list .
+        rflayerdata.msglist[bufid].value.nextid = rflayerdata.freeheader ;
+        rflayerdata.freeheader = bufid ;        
+        return var ;
+    }
+    var.value.nextid =  var.value.memid ;
+    var.value.memid = rflayerdata.msglist[var.value.memid].value.nextid ;
+    while(var.value.memid != InvalidId)
+    {
+        if(rflayerdata.msglist[var.value.memid].value.memid == bufid )    
+        {
+            bufid = var.value.memid ;
+			rflayerdata.msglist[var.value.nextid].value.nextid = rflayerdata.msglist[var.value.memid].value.nextid ;
+            // check if it 's the last one 
+            if(bufid == rflayerdata.onlineender)            
+            {
+                rflayerdata.onlineender = var.value.nextid  ;
+                if(bufid == rflayerdata.onlinecur )
+                   rflayerdata.onlinecur =  rflayerdata.onlineheader ;
+            }
+            // put current to free list 
+            rflayerdata.msglist[bufid].value.nextid = rflayerdata.freeheader ;
+            rflayerdata.freeheader = bufid ;         
+            // copy data out .
+            var.var.data32 =  rflayerdata.msglist[var.value.memid].var.data32;
+            break;
+        }
+        // goto next 
+        var.value.nextid = var.value.memid ;
+        var.value.memid = rflayerdata.msglist[var.value.memid].value.nextid;
+    }
+    return var ;
+
+}
+// try to find a specail msg id
+RfMsg findonlineaddr(uint16_t addr)
+{
+    RfMsg msg ;
+    msg.value.memid = InvalidId ;
+    msg.value.nextid  = rflayerdata.onlineheader ;
+    while(msg.value.nextid != InvalidId)
+    {
+        if(rflayerdata.msglist[msg.value.nextid].value.addr == addr )
+            return rflayerdata.msglist[msg.value.nextid] ;
+        msg.value.nextid = rflayerdata.msglist[msg.value.nextid].value.nextid;
+    }
+    return msg ;
+}
+
 // put a msg to direct queue .
-void  setwaitmsg(uint8_t msg ,uint16_t addr)
+void  addofflinemsg(uint8_t msg ,uint16_t addr)
 {
-    uint8_t  temp ,id;
+    uint8_t id;
     // there must has a free postion.
     assert(rflayerdata.freeheader != InvalidId);
     // get first and next free item  .
     id = rflayerdata.freeheader ;
-    rflayerdata.freeheader = rflayerdata.nextid[id];
+    rflayerdata.freeheader = rflayerdata.msglist[id].value.nextid;
+    rflayerdata.msglivecnt[id] = MsgMaxWaitCnt ;
     // store the msg to first free position
-    rflayerdata.rflayerbuf[id] = msg ;
-    rflayerdata.rflayeraddr[id] = addr ;
-    rflayerdata.nextid[id] = InvalidId ;
+    rflayerdata.msglist[id].value.memid = msg ;
+    rflayerdata.msglist[id].value.addr = addr ;
+    rflayerdata.msglist[id].value.nextid = InvalidId ;
     // add it to direct queue end 
-    if(rflayerdata.waitheader == InvalidId)
+    if(rflayerdata.offlineheader == InvalidId)
     {
-        rflayerdata.waitheader = id;
+        rflayerdata.offlineheader = id;
         return ;
     }
-    temp = rflayerdata.waitheader ;
-    while(rflayerdata.nextid[temp] != InvalidId)
+    msg = rflayerdata.offlineheader ;
+    while(rflayerdata.msglist[msg].value.nextid != InvalidId)
     {
-        temp = rflayerdata.nextid[temp];
+        msg = rflayerdata.msglist[msg].value.nextid;
     }
-    rflayerdata.nextid[temp] = id ;
+    rflayerdata.msglist[msg].value.nextid = id ;
 }
-// get a msg from wait queue . remove it if the trycnt <=1 , 
-Var32 getwaitmsg()
+// remove a msg from offline queue . it's id is bufid 
+RfMsg rmofflineid(uint8_t bufid)
 {
-    uint8_t * lp;
-    Var32 var ;
-    // get the first msg
-    if(rflayerdata.waitheader == InvalidId)
-    {
-        var.data8.data0 = InvalidId ;
+    RfMsg var ;
+    var.value.memid = rflayerdata.offlineheader  ;
+    if(var.value.memid == InvalidId)
+        return var ;    
+    if(rflayerdata.msglist[var.value.memid].value.memid == bufid )
+    { // is first one 
+        bufid = var.value.memid  ;
+        rflayerdata.offlineheader  = rflayerdata.msglist[bufid].value.nextid ;
+        var.var.data32 = rflayerdata.msglist[bufid].var.data32;
+        // return to free list .
+        rflayerdata.msglist[bufid].value.nextid = rflayerdata.freeheader ;
+        rflayerdata.freeheader = bufid ;        
         return var ;
     }
-    // update the direct queue.
-    var.data8.data1 = rflayerdata.waitheader ;
-    var.data8.data0 =  rflayerdata.rflayerbuf[var.data8.data1] ;
-    var.data16.data1 = rflayerdata.rflayeraddr[var.data8.data1] ;
-    lp = (uint8_t *) getrfbuf( var.data8.data0);
-    if(*lp < 2)
+    var.value.nextid =  var.value.memid ;
+    var.value.memid = rflayerdata.msglist[var.value.memid].value.nextid ;
+    while(var.value.memid != InvalidId)
     {
-        rflayerdata.waitheader = rflayerdata.nextid[var.data8.data1];
-        // store the postion to free queue
-        rflayerdata.nextid[var.data8.data1] = rflayerdata.freeheader ;
-        rflayerdata.freeheader = var.data8.data1;
+        if(rflayerdata.msglist[var.value.memid].value.memid == bufid )    
+        {
+            bufid = var.value.memid  ;
+            rflayerdata.msglist[var.value.nextid].value.nextid = rflayerdata.msglist[var.value.memid].value.nextid ;
+            var.var.data32 = rflayerdata.msglist[bufid].var.data32;
+            // return to free list .
+            rflayerdata.msglist[bufid].value.nextid = rflayerdata.freeheader ;
+            rflayerdata.freeheader = bufid ;        
+            break;
+        }
+        // goto next 
+        var.value.nextid = var.value.memid ;
+        var.value.memid = rflayerdata.msglist[var.value.memid].value.nextid;
     }
     return var ;
 }
-
-
-// try to find a specail msg id
-uint8_t findwaitaddr(uint16_t addr)
+// remove the first RfMsg it's addr is specail
+RfMsg getofflineaddr(uint16_t addr)
 {
-    uint8_t id ;
-    id  = rflayerdata.waitheader ;
-    while(id != InvalidId)
-    {
-        if(rflayerdata.rflayeraddr[id] == addr )    
-            return id ;
-        id = rflayerdata.nextid[id];
-    }
-    return InvalidId ;
-}
-Var32 rmwaitaddr(uint16_t addr)
-{
-    Var32 var ;
-    var.data8.data0 = InvalidId ;
-    var.data8.data1  = rflayerdata.waitheader ;
-    if(var.data8.data1 == InvalidId)
-    {
+    RfMsg var ;
+    var.value.memid = rflayerdata.offlineheader  ;
+    if(var.value.memid == InvalidId)
+        return var ;    
+    if(rflayerdata.msglist[var.value.memid].value.addr == addr )
+    { // is first one 
+        addr = var.value.memid  ;
+        rflayerdata.offlineheader  = rflayerdata.msglist[addr].value.nextid ;
+        var.var.data32 = rflayerdata.msglist[addr].var.data32;
+        // return to free list .
+        rflayerdata.msglist[addr].value.nextid = rflayerdata.freeheader ;
+        rflayerdata.freeheader = addr ;        
         return var ;
     }
-    // find the addr ,store it at id ;
-    var.data8.data0  = var.data8.data1 ;
-    if(rflayerdata.rflayeraddr[var.data8.data1] == addr )
+    var.value.nextid =  var.value.memid ;
+    var.value.memid = rflayerdata.msglist[var.value.memid].value.nextid ;
+    while(var.value.memid != InvalidId)
     {
-        rflayerdata.waitheader = rflayerdata.nextid[var.data8.data1] ;
-    }
-    else
-    {   
-        var.data8.data1  =  rflayerdata.nextid[var.data8.data1];   
-        while(var.data8.data1 != InvalidId)
+        if(rflayerdata.msglist[var.value.memid].value.addr == addr )    
         {
-            if(rflayerdata.rflayeraddr[var.data8.data1] == addr )    
-            {
-                rflayerdata.nextid[var.data8.data0] = rflayerdata.nextid[var.data8.data1] ;
-                break;
+            addr = var.value.memid  ;
+            rflayerdata.msglist[var.value.nextid].value.nextid = rflayerdata.msglist[var.value.memid].value.nextid ;
+            var.var.data32 = rflayerdata.msglist[addr].var.data32;
+            // return to free list .
+            rflayerdata.msglist[addr].value.nextid = rflayerdata.freeheader ;
+            rflayerdata.freeheader = addr ;        
+            break;
+        }
+        // goto next 
+        var.value.nextid = var.value.memid ;
+        var.value.memid = rflayerdata.msglist[var.value.memid].value.nextid;
+    }
+    return var ;
+
+}
+// remove all msg from offline queue . it's addr is specail 
+void rmofflineaddr(uint16_t addr)
+{
+    uint8_t cur ,last ;
+    cur  = rflayerdata.offlineheader ;
+    if(cur == InvalidId)
+        return  ;
+    // use last to hold the last id .
+    last =  InvalidId;
+    while(cur != InvalidId)
+    {
+        if(rflayerdata.msglist[cur].value.addr == addr )    
+        { // remove cur .
+            freerfbuf(rflayerdata.msglist[cur].value.memid);
+            if(last == InvalidId)            
+            {// first one .
+                last = cur ;
+                cur =rflayerdata.msglist[cur].value.nextid ;
+                rflayerdata.offlineheader = cur ;
+                rflayerdata.msglist[last].value.nextid  = rflayerdata.freeheader ;
+                rflayerdata.freeheader = last ;
+                last = InvalidId ;
             }
             else
             {
-                var.data8.data0 = var.data8.data1;
-                var.data8.data1 = rflayerdata.nextid[var.data8.data1] ;
+                rflayerdata.msglist[last].value.nextid =  rflayerdata.msglist[cur].value.nextid ;      
+                rflayerdata.msglist[cur].value.nextid  = rflayerdata.freeheader ;
+                rflayerdata.freeheader = cur ; 
+                cur  = rflayerdata.msglist[last].value.nextid ;
             }
         }
-        if(var.data8.data1 == InvalidId)
+        else
         {
-            var.data8.data0 = InvalidId;
-            return var;
+            // goto next 
+            last= cur ;
+            cur = rflayerdata.msglist[cur].value.nextid;
         }
     }
-    // put id to free queue .
-    var.data8.data0  = var.data8.data1 ; 
-    rflayerdata.nextid[var.data8.data0] = rflayerdata.freeheader ;
-    rflayerdata.freeheader = var.data8.data0 ;
-    var.data16.data1 = rflayerdata.rflayeraddr[var.data8.data0];
-    return var ;
+}
+//
+void subofflinemsglivecnt(void)
+{
+    uint8_t cur , last;
+    StdEvt  evt ;
+    cur = rflayerdata.offlineheader ;
+    last = InvalidId ;
+    while(cur != InvalidId)
+    {
+        if(rflayerdata.msglivecnt[cur] > 0)
+            rflayerdata.msglivecnt[cur]-- ;
+        else
+        {// remove and post to net layer .
+            evt = makeevt(Sig_Rf_Overtime,rflayerdata.msglist[cur].value.memid);
+            postevtbyindex(BlcId_Net,evt);             
+            if(last == InvalidId)
+            {// first one.
+                last = cur ;
+                cur = rflayerdata.msglist[cur].value.nextid ;
+                // return to free list .
+                rflayerdata.msglist[last].value.nextid = rflayerdata.freeheader ;
+                rflayerdata.freeheader = last ;      
+                last = InvalidId;        
+            }
+            else
+            {
+                rflayerdata.msglist[last].value.nextid = rflayerdata.msglist[cur].value.nextid ;
+                 // return to free list .
+                rflayerdata.msglist[cur].value.nextid = rflayerdata.freeheader ;
+                rflayerdata.freeheader = cur ;   
+                cur =  rflayerdata.msglist[last].value.nextid ;   
+            }
+        }
+    }
 }
 
 // router inter function , used to check ,get fitable addr 
@@ -539,8 +900,7 @@ void setaddrcfg(uint16_t addr)
 {
 	globaldata.cfgdata.LocalAddr  = addr ;	
 	if((globaldata.cfgdata.TreeBitmap & 0x80) == 0 )
-	{
-
+	{// local is a leaf node .
 		globaldata.cfgdata.LocalAddr  = addr | 0x3f ; // this address is used by father node . we should remove this bit from leaf bitmap ;
 		globaldata.cfgdata.TreeBitmap = (uint8_t)(addr&0x0f);
 	}
@@ -1175,193 +1535,82 @@ void analysisbrcstreply(uint8_t *lpbuf)
 }
 
 
-// mac layer part  -----------------------------------------------
 
-// init the mac layer event buffer and the live cnt to zero . 
-// it is called at node reset .
-void rflayerdataInit(void)
-{
-    uint16_t i ;
-    uint32_t * lp32;
-    uint8_t *lp8 ;
-    // init the rf memory pool .
-    rflayerdata.idfree  =0;
-    rflayerdata.freecnt =PoolRF_Cnt;
-    lp32 = rflayerdata.memarray;    
-    for(i = 0 ; i< (PoolRF_Cnt -1) ; i++)
-    {
-        *lp32 = i+1 ;
-        lp32 += PoolRF_Size;
-    }
-    *lp32 = InvalidId ;
-    
-    for(i =0 ; i< Max_RfLayerMem -1 ; i++)
-    {
-        rflayerdata.nextid[i] = i+1;
-    }
-    rflayerdata.nextid[i] = InvalidId;
-    rflayerdata.freeheader = 0 ;
-    
-    rflayerdata.directheader = InvalidId ;
-    rflayerdata.undirectheader = InvalidId ;
-    rflayerdata.waitheader = InvalidId ;
-    //rflayerdata.waitender = InvalidId;
-    rflayerdata.cadcnt = 32 ;
-    rflayerdata.delaycnt = Max_Delay;
-
-    lp8 = ChildNodeLiveCnt;
-    i = ChildNodeCnt  ;
-    while(i)    
-    {
-        *lp8 = 0x0;
-        lp8++ ;
-        i-- ;
-    }
-    NodeActiveCnt =  0;
-#if Nodetype == RootNode
-    
-    if(((uint32_t) NetIdAddrArray) &0x03)
-    { // not 4 byte assigned .
-        NetIdAddrArray[0] =  0xffff ;
-        lp32 = (uint32_t *)(&NetIdAddrArray[1]);
-        i = (MaxNetId -1) >>1 ;
-    }
-    else
-    {
-        lp32 = (uint32_t *)NetIdAddrArray;
-        i = MaxNetId >>1 ;
-    }
-    while(i)    
-    {
-        *lp32 = 0xffffffff;
-        lp32++ ;
-        i-- ;
-    }
-    // set the last one , it maybe not setted .
-    NetIdAddrArray[MaxNetId-1] = 0xffff;
-#endif    
-}
-// release all msg memery stored in  rflayerdata . it is called when RF power off 
-// there maybe other rf memory is used by other code ,  not influence them .
-void rflayerdatarelease(void)
-{
-     uint8_t id ,temp;
-     
-     id = rflayerdata.directheader ;
-     while(id != InvalidId)
-     {
-        freerfbuf(id);
-        temp = id ; 
-        id = rflayerdata.nextid[id];
-        rflayerdata.nextid[temp] =  rflayerdata.freeheader;
-        rflayerdata.freeheader =temp; 
-     }
-     id = rflayerdata.undirectheader ;
-     while(id != InvalidId)
-     {
-        freerfbuf(id); 
-        temp = id ; 
-        id = rflayerdata.nextid[id];
-        rflayerdata.nextid[temp] =  rflayerdata.freeheader;
-        rflayerdata.freeheader =temp; 
-     }    
-     id = rflayerdata.waitheader ;
-     while(id != InvalidId)
-     {
-        freerfbuf(id); 
-        temp = id ; 
-        id = rflayerdata.nextid[id];
-        rflayerdata.nextid[temp] =  rflayerdata.freeheader;
-        rflayerdata.freeheader =temp; 
-     } 
-    rflayerdata.directheader = InvalidId ;
-    rflayerdata.undirectheader = InvalidId ;
-    rflayerdata.waitheader = InvalidId ;     
-}
-
-
-uint8_t CheckRtcFreeDay(void)  
-{
-#if  Nodetype !=  RootNode     
-    if(rflayerdata.rfmode < rf_monitor)
-        return 0;
-    if(rflayerdata.rtcfreeday > Max_RtcFreeCnt)
-        return 1 ;
-    else
-        rflayerdata.rtcfreeday ++; 
-#endif   
-    return 0;
-   
-}
 
  //  rf receive a new msg . check it : if the msg is a ack msg , remove the wait queue  if there is . else do mac proc 
  //  this function may create a StdEvt in direct queue  that need to send out directly .
-void MacRecvProc(uint8_t msg) 
+void MacRecvProc(uint8_t memid) 
 {
-    Var32 temp ;
+    RfMsg msg ;
+    uint8_t   temp8 ;
     LPFrameCtrl  lpframe ;
-    lpframe = (LPFrameCtrl)getrfbuf(msg);
-    temp.data8.data0 = GetMacCmd(lpframe->FrameBit) ;
-    if(temp.data8.data0 == maccmd_none )
-    {   // this is a data msg . check if send to local , discard if not 
+    lpframe = (LPFrameCtrl)getrfbuf(memid);
+    msg.value.memid = GetMacCmd(lpframe->FrameBit) ;
+    if(msg.value.memid == maccmd_none )
+    {
+        temp8 = lpframe->MsgId ;
+#if Nodetype != RootNode
+        // this is a data msg . check if send to local , discard if not 
         if(IsDownMsg(lpframe->FrameBit)) 
         {// msg is send from root to a child node .  Varaddr is the  node addr   
             if(isfatheraddr(lpframe->SendAddr))
             {
-                ResetLiveCnt(FatherTreeOffset);
+                ResetFatherLiveCnt();
                 if(lpframe->VarAddr == globaldata.cfgdata.LocalAddr)
-                {   // recv msg to local .   send it to net process.
-                    postevtbyindex(BlcId_Net,makeevt(Sig_Rf_Recv_Msg,msg));  
+                {   // recv msg to recv list .   send event to net process.
+                    if(addrecvmsg(memid,lpframe->SendAddr))
+                        postevtbyindex(BlcId_Net,makeevt(Sig_Rf_Recv_Msg,0));  
                     // check if it has ack flage , it also means it has received a message send from local .
                     if(IsAuxAckMsg(lpframe->FrameBit)) 
-                         rmwaitaddr(lpframe->SendAddr) ;      
-                    // check if there is a direct message need to be send to this node .
-                    temp = rmundirectaddr(lpframe->SendAddr);
-                    temp.data16.data1 = lpframe->SendAddr ;
-                    if(temp.data8.data0 == InvalidId)
+                         rmonlineid(GetAuxAckMemId(lpframe->FrameBit)) ;      
+                    // check if there is a online message need to be send to this node .
+                    msg = findonlineaddr(lpframe->SendAddr);
+                    if(msg.value.memid == InvalidId)
                     { // no direct msg need to send , send ack.
-                        temp.data8.data0 = newrfbuf(lpframe->SendAddr); 
-                        makeackmsg(temp.data8.data0,1);
+                        msg.value.memid = newrfbuf(lpframe->SendAddr); 
+                        makeackmsg(msg.value.memid,1);
                     }
                     else
                     { // send direct msg ,with aux flage.
-                        temp.data8.data0 = msg ;
-                        lpframe = (LPFrameCtrl)getrfbuf(temp.data8.data0) ;
+                        lpframe = (LPFrameCtrl)getrfbuf(msg.value.memid) ;
                         SetAuxAckMsg(lpframe->FrameBit);
+                        SetAuxAckMemId(lpframe->FrameBit,temp8);
                     }
-                    SendRfMsgDirect(temp.data8.data0,temp.data16.data1);                     
+                    //send it out .
+                    SendMsg(msg);                    
                 }
                 else if(issubnodeaddr(lpframe->VarAddr))
-                { // msg is send to child node .
-                    // get next connected  child addr for the  addr , then put it to normal msg queue.
-                    temp.data8.data0 = msg ;
-                    temp.data16.data1 = getsubnodeaddr(lpframe->VarAddr);
-                    SendRfMsg(temp.data8.data0,temp.data16.data1);
-                    // we need return a ack , or undirect msg to sender 
-                    temp = rmundirectaddr(lpframe->SendAddr);
-                    temp.data16.data1 = lpframe->VarAddr;
-                    if(temp.data8.data0 == InvalidId)
-                    {
-                        temp.data8.data0 = newrfbuf(temp.data16.data1); 
-                        makeackmsg(temp.data8.data0,0);
+                { // msg is send to child node . put is in offline list .
+                    
+                    addofflinemsg(memid,lpframe->VarAddr);
+                    // check if it has ack flage , it also means it has received a message send from local .
+                    if(IsAuxAckMsg(lpframe->FrameBit)) 
+                         rmonlineid(lpframe->MsgId) ;      
+                    // check if there is a online message need to be send to this node .
+                    msg = findonlineaddr(lpframe->SendAddr);
+                    if(msg.value.memid == InvalidId)
+                    { // no direct msg need to send , send ack.
+                        msg.value.memid = newrfbuf(lpframe->SendAddr); 
+                        makeackmsg(msg.value.memid,1);
                     }
                     else
-                    {
-                        temp.data8.data0 = msg ;
-                        lpframe = (LPFrameCtrl)getrfbuf( temp.data8.data0) ;
-                        SetAuxAckMsg(lpframe->FrameBit);                        
+                    { // send direct msg ,with aux flage.
+                        lpframe = (LPFrameCtrl)getrfbuf(msg.value.memid) ;
+                        SetAuxAckMsg(lpframe->FrameBit);
                     }
-                    SendRfMsgDirect(temp.data8.data0,temp.data16.data1);                        
+                    //send it out .
+                    SendMsg(msg);                    
                 }
                 else //  should never come here , it means the father send a down msg  but not to it's child
-                    freerfbuf(msg);
+                    freerfbuf(memid);
             }
             else  // discard it
-                freerfbuf(msg);
+                freerfbuf(msgid);
             return ;
         }
         else
         { // send to root . varaddr is the sender's addr , sender should be child addr
+#endif        
             if(ischildaddr(lpframe->SendAddr))
             {
                #if Nodetype  == RootNode   
@@ -1380,9 +1629,9 @@ void MacRecvProc(uint8_t msg)
                     SendRfMsg(msg,temp.data16.data1);
                     // prepare a reply msg to child.
                     if(IsAuxAckMsg(lpframe->FrameBit)) 
-                         rmwaitaddr(lpframe->SendAddr) ;
+                         rmofflineaddr(lpframe->SendAddr) ;
                     // try to find a cmd need to this child .
-                    temp = rmundirectaddr(lpframe->SendAddr);
+                    temp = rmonlineaddr(lpframe->SendAddr);
                     temp.data16.data1 = lpframe->SendAddr ;
                     if(temp.data8.data0 == InvalidId)
                     {
@@ -1410,11 +1659,11 @@ void MacRecvProc(uint8_t msg)
             if(IsDownMsg(lpframe->FrameBit))
             { // the msg is  tree reply the braodcast to child .  local is child
               // put the received addr  and rssi to NearTreeNode1/2 and NearTreeRssi1/2 .
-              // the netthd will start register proc to send  maccmd_broadcast  with direction is up . and wait 4second
+              // the netthd will start register proc to send  maccmd_broadcast  with direction is up . and offline 4second
               // the reachable tree will return this message .  here to store the useable tree node .
               // after 4 second , the braodcast proc will use the lowest rssi to send jion message .      
               // for broad cast . node should receive only the tree node , that is at the layer  it's same with it's father. 
-                if(rflayerdata.rfmode >= rf_gettime) 
+                if(rflayerdata.netmode >= net_gettime) 
                 { 
                     if(isfatherlayeraddr(lpframe->SendAddr) == 0)
                     {
@@ -1460,7 +1709,7 @@ void MacRecvProc(uint8_t msg)
             }
             if(temp.data8.data0 == maccmd_ack)
             {
-                rmwaitaddr(lpframe->SendAddr);
+                rmofflineaddr(lpframe->SendAddr);
                 freerfbuf(msg);
             }
             else if(temp.data8.data0 == maccmd_join)
@@ -1530,40 +1779,40 @@ void MacRecvProc(uint8_t msg)
                 }
                 return ;
             }
-            else if(temp.data8.data0 == maccmd_checkundirect)
-            { // child need to get time from father .  this cmd is period send by child to get possible incoming msg .
-              // the undirect msg is also been send when there is a msg send to father node .  
+            else if(temp.data8.data0 == maccmd_checkoffline)
+            { // child need to get msg from father .  this cmd is period send by child to get possible incoming msg .
+              // the online msg bit is also been send when there is a msg send to father node .  
                 if(IsDownMsg(lpframe->FrameBit))
-                { // child receive  reply  sended by father. there is a undirect msg .
+                { // child receive  reply  sended by father. there is a online msg .
                     ResetActiveCnt();
-                    postevtbyindex(BlcId_Net,Sig_Rf_CheckUndirect_OK);
+                    // send to check offline msg proc  , stop it .
+                    postevtbyindex(BlcId_Net,makeevt(Sig_Rf_CheckOffline_OK,msg);
                     if(IsAuxAckMsg(lpframe->FrameBit))
-                    {
-                        rmundirectaddr(lpframe->SendAddr);
-                        freerfbuf(msg);
-                    }
-                    else
-                    {
-                        ResetLiveCnt(FatherTreeOffset);
+                    { // there is a new msg come . send to high layer .
                         postevtbyindex(BlcId_Net,makeevt(Sig_Rf_Recv_Msg,msg));    
                         msg = newrfbuf(lpframe->SendAddr); 
                         makeackmsg(msg,1);
                         SendRfMsgDirect(msg,lpframe->SendAddr);                     
                     }
+                    else
+                    {
+                        postevtbyindex(BlcId_Net,makeevt(Sig_Rf_No_Msg,0)); 
+                        freerfbuf(msg);
+                    }
                     return ;
                 }
                 else
-                {// father reciev check undirect asking from child .
-                    // return the undirect msg if there is , else return ack msg .
-                    temp.data8.data0 = findundirectaddr(lpframe->SendAddr);
-                    if(temp.data8.data0 == InvalidId)
+                {// father reciev check online asking from child .
+                    // return the online msg if there is , else return ack msg .
+                    var = getofflineaddr(lpframe->SendAddr);
+                    if(var.value.memid == InvalidId)
                     {
-                        temp.data8.data0 = msg ;
-                        makeackmsg(temp.data8.data0,0);
+                        makeackmsg(var.value.memid,0);
                     }
                     else
                     {
-                        freerfbuf(msg);
+                        setonlinemsg(var.value.memid,var,value.addr);
+                        freerfbuf(msg);................
                         lpframe = (LPFrameCtrl)getrfbuf( temp.data8.data0) ;
                         SetAuxAckMsg(lpframe->FrameBit);                          
                     }
